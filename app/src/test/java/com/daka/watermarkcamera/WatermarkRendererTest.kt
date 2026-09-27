@@ -526,7 +526,7 @@ class WatermarkRendererTest {
 
     private val mW = 1440f
     private val mH = 1920f
-    private val mPad get() = 40f * (mW / 1080f)
+    private val mPad get() = WatermarkRenderer.PAD * (mW / 1080f)
 
     @Test
     fun 底部对齐_正文块与品牌区共用同一个底边() {
@@ -894,8 +894,8 @@ class WatermarkRendererTest {
         }
         println("品牌区墨迹 $ink px  左=$leftMost 右=$rightMost  画布宽=${bmp.width}")
         assertTrue("品牌区一个白像素都没有 —— 矢量路径没画出来", ink > 3000)
-        /* s=1.333，pad = 40*s ≈ 53.3 → 右边界应贴住 1440-53.3 ≈ 1387 */
-        val pad = 40f * (1440f / 1080f)
+        /* s=1.333、PAD=26 → 单侧边距 ≈ 34.7 → 右边界应贴住 1440-34.7 ≈ 1405 */
+        val pad = WatermarkRenderer.PAD * (1440f / 1080f)
         assertEquals("品牌区应右对齐贴住右侧边距", bmp.width - pad, rightMost.toFloat(), 3f)
         assertTrue("左边界不能顶出画面", leftMost > 200)
 

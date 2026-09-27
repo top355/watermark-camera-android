@@ -26,6 +26,22 @@ object WatermarkRenderer {
     private const val BASE = 1080f
 
     /**
+     * 水印距画面**左/右/下**三边的边距（1080 基准）。三者共用一个值。
+     *
+     * 从 40 收到 26（-35%）是照着"再靠边一点、再靠下一点"改的。
+     * 原来 40 是按网页版的呼吸感定的，但网页版是**看**的（图片周围是浏览器留白），
+     * 相机是**拍**的 —— 成图四周没有留白可言，水印该像官方水印那样压到边上去一点。
+     *
+     * 不分开成"左右一个、下方一个"：这个值同时决定左边正文块的起点、右边品牌区的终点、
+     * 以及整个下方块的基线（`h - pad`）。拆成两个值就会出现"左右收窄了、底边还是老位置"
+     * 或者反过来的半吊子状态，改版式时还得记住两个数的关系。
+     *
+     * 注意：卡片内部那些 `40f * s` 是**别的东西**（标签左右内边距、时间字号起点），别跟着改。
+     */
+    /* internal 而非 private：单测要按同一个数算期望值，写死一份迟早对不上 */
+    internal const val PAD = 26f
+
+    /**
      * 「打卡」标签的配色：琥珀黄底 + 深色字。
      * 黄底上压白字对比度只有 1.9:1，基本看不清，所以字必须跟着改深色。
      */
@@ -63,6 +79,15 @@ object WatermarkRenderer {
     internal const val KIND_TEXT = 0
     internal const val KIND_ADDR = 1
     internal const val KIND_DATE = 2
+
+    /**
+     * 防伪码那行的基准字号（1080 基准）—— 品牌区三行里最小的那一行。
+     *
+     * 跟随 [BrandMark.NAME_EM] 一起放大（17 → 23，同 ×1.35），层级比
+     * 1 : 0.71 : 0.575 保持不变：品牌区是一个整体，
+     * 只放大其中一行会把"名字 > 标语 > 校验码"的层级关系搞乱。
+     */
+    private const val BRAND_CODE_EM = 23f
 
     /** 正文块与品牌区之间至少留的横向间隙（1080 基准） */
     private const val BRAND_GAP_X = 16f
@@ -218,7 +243,7 @@ object WatermarkRenderer {
          * 横屏时若仍按宽度算，s 会从 1.33 涨到 1.78，水印被放大近 40% 且糊出屏幕。
          */
         val s = min(w, h) / BASE
-        val pad = 40f * s
+        val pad = PAD * s
         val cardH = if (cfg.showCard) CARD_H * s else 0f
         val lines = buildLines(cfg, now, loc)
 
@@ -514,7 +539,7 @@ object WatermarkRenderer {
     ): BrandLayout? {
         if (!cfg.showBrand) return null
 
-        val pad = 40f * s
+        val pad = PAD * s
         val maxW = w - pad * 2f
 
         val rows = ArrayList<BrandRow>(3)
@@ -532,7 +557,8 @@ object WatermarkRenderer {
                 if (it == BrandMark.NAME) {
                     BrandRow(listOf(BrandSeg(it, false)), BrandMark.NAME_EM * s, true, ART_NAME)
                 } else {
-                    BrandRow(listOf(BrandSeg(it, false)), 30f * s, true)
+                    /* 改过名字就退回字体渲染，但字号跟矢量稿保持一致 —— 换字体不该顺手换大小 */
+                    BrandRow(listOf(BrandSeg(it, false)), BrandMark.NAME_EM * s, true)
                 }
             )
         }
@@ -552,7 +578,7 @@ object WatermarkRenderer {
                     BrandRow(
                         /* 标签就两个字「防伪」—— 后面跟的就是码本身，再写一个「码」字是重复。 */
                         listOf(BrandSeg("防伪 ", false), BrandSeg(code, true)),
-                        17f * s,
+                        BRAND_CODE_EM * s,
                         false
                     )
                 )
@@ -1092,8 +1118,8 @@ object WatermarkRenderer {
         val p = Paint(Paint.ANTI_ALIAS_FLAG)
         val s = min(w, h) / BASE
         val b = measureBrand(w, s, cfg, now, loc, p)
-            ?: return floatArrayOf(0f, w, w, 40f * s)
-        return floatArrayOf(b.w, b.right, w, 40f * s)
+            ?: return floatArrayOf(0f, w, w, PAD * s)
+        return floatArrayOf(b.w, b.right, w, PAD * s)
     }
 
     /** 供测试断言卡片版式：返回 [卡片宽, 画布宽, 单侧边距, 时间字号] */
@@ -1105,7 +1131,7 @@ object WatermarkRenderer {
         now: Calendar
     ): FloatArray {
         val s = min(w, h) / BASE
-        val pad = 40f * s
+        val pad = PAD * s
         val cardH = if (cfg.showCard) CARD_H * s else 0f
         val p = Paint(Paint.ANTI_ALIAS_FLAG)
         val l = measureCard(w, s, cardH, pad, logo, cfg, now, p)
