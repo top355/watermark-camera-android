@@ -1,0 +1,34 @@
+PT Mono Bold
+============
+
+Copyright (c) 2010 ParaType Inc., ParaType Ltd. All rights reserved.
+PT Mono is a trademark of the ParaType Ltd.
+Designers: A.Korolkova, I.Chaeva
+Version: 13.0d2e4 (2017-06-29)
+File: res/font/pt_mono_bold.ttf (65,396 bytes)
+
+License
+-------
+(as embedded in the font's own `name` table, ID 13)
+
+  ParaType Ltd grants you the right to use, copy, modify this font and
+  distribute modified and unmodified copies of the font by any means,
+  including placing on Web servers for free downloading, embedding in
+  documents and Web pages, bundling with commercial and non commercial
+  products, if it does not conflict with the ParaType Free Font License
+  placed on www.paratype.com/public/pt_openlicense_eng.asp
+
+Full text: http://www.paratype.com/public/pt_openlicense_eng.asp
+
+`OS/2.fsType = 0x0000` — Installable Embedding. The font itself declares
+that embedding is permitted.
+
+How this project uses it
+------------------------
+Only for the **ASCII part of the anti-fake code** on the watermark's
+bottom-right brand block (14 digits/letters, monospaced so the columns
+line up). The face contains **no CJK glyphs** (its `cmap` has zero
+segments covering U+4E00–U+9FFF), so the Chinese label "防伪" is still
+drawn with the system font — see `WatermarkRenderer.BrandSeg`.
+
+Verified on 2026-09-27 with `watermark-camera/verify/font_info.js`.

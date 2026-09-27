@@ -1,0 +1,17 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- 相机机身 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M30,46 H78 V76 H30 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M43,46 L48,38 H60 L65,46 Z" />
+    <!-- 镜头 -->
+    <path
+        android:fillColor="#FF7A1A"
+        android:pathData="M43,61 a11,11 0 1,0 22,0 a11,11 0 1,0 -22,0" />
+</vector>

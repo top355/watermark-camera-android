@@ -1,0 +1,29 @@
+# 行尾统一：以 LF 入库、也以 LF 检出。
+#
+# 为什么需要这个文件：本机 git 的 core.autocrlf=true（Windows 默认），而 CI 跑在 Ubuntu 上，
+# 不加声明时 git 会在 checkout 时把文本文件换成 CRLF，于是"只改了一行"也会显示成整文件改动。
+# 钉死 LF 之后两端看到的内容一致，`git diff` 才只显示真正的改动。
+* text=auto eol=lf
+
+# Windows 批处理反过来了 —— CRLF 是它的要求，别被上面的规则改成 LF。
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# 二进制：不参与行尾转换，也不做文本 diff
+*.png      binary
+*.jpg      binary
+*.jpeg     binary
+*.webp     binary
+*.gif      binary
+*.ttf      binary
+*.otf      binary
+*.woff     binary
+*.woff2    binary
+*.jar      binary
+*.apk      binary
+*.aab      binary
+*.so       binary
+*.dex      binary
+*.zip      binary
+*.keystore binary
+*.jks      binary

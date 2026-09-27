@@ -1,0 +1,32 @@
+*.iml
+.gradle/
+# Kotlin 编译器的会话缓存（sessions/*.salive 文件名带随机数）——
+# 不 ignore 的话每次编译都会冒出「已删除/未跟踪」的噪音
+.kotlin/
+/local.properties
+/.idea/
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+/app/build/
+*.apk
+*.aab
+*.keystore
+!debug.keystore
+
+# ---------------- 验证过程的中间产物 ----------------
+# 这些是脚本生成的探针页/结果快照，不是资产。其中两个探针页把字体以 base64
+# 内嵌了进去（各 1.8MB），旧测试结果又 dump 了一堆地址 —— 都不该进仓库。
+verify/_*.html
+verify/_*.xml
+verify/_*.json
+verify/_*.png
+
+# 比对字体用的参考字型。**msyhbd.ttc（微软雅黑 Bold）和 qh65/qh85.otf（汉仪旗黑）
+# 是商业字体，只允许本机比对，绝不能再分发**（放进公开仓库就是侵权）。
+# 脚本按需从系统字体目录复制即可，不要提交。
+verify/_glyph/
+

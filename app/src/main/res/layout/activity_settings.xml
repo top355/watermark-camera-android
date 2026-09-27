@@ -1,0 +1,413 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="?android:attr/colorBackground"
+    android:orientation="vertical">
+
+    <com.google.android.material.appbar.MaterialToolbar
+        android:id="@+id/toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        app:navigationIcon="@drawable/ic_back"
+        app:title="@string/settings_title" />
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:fillViewport="true">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:paddingBottom="28dp">
+
+            <!-- ==================== 打卡卡片 ==================== -->
+            <TextView style="@style/SectionTitle" android:text="@string/sec_card" />
+
+            <com.google.android.material.textfield.TextInputLayout
+                style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="@string/hint_card_title"
+                app:helperText="@string/helper_card_title">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/etCardTitle"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="text"
+                    android:maxLines="1" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:hint="@string/hint_unit"
+                app:helperText="@string/helper_unit">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/etUnit"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="text"
+                    android:maxLines="1" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/label_logo"
+                    android:textSize="15sp" />
+
+                <ImageView
+                    android:id="@+id/logoPreview"
+                    android:layout_width="wrap_content"
+                    android:layout_height="32dp"
+                    android:layout_marginEnd="8dp"
+                    android:adjustViewBounds="true"
+                    android:background="@android:color/white"
+                    android:contentDescription="@string/label_logo"
+                    android:padding="2dp"
+                    android:visibility="gone" />
+
+                <Button
+                    android:id="@+id/btnLogoPick"
+                    style="@style/Widget.Material3.Button.TonalButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:minWidth="0dp"
+                    android:text="@string/btn_pick" />
+
+                <Button
+                    android:id="@+id/btnLogoClear"
+                    style="@style/Widget.Material3.Button.TextButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:minWidth="0dp"
+                    android:text="@string/btn_clear" />
+            </LinearLayout>
+
+            <!-- 说清"现在到底用的是哪个"，否则用户分不清是内置生效还是没设置 -->
+            <TextView
+                android:id="@+id/logoSource"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:textColor="?attr/colorOnSurfaceVariant"
+                android:textSize="12sp"
+                tools:text="当前使用：内置占位 Logo" />
+
+            <LinearLayout style="@style/SwitchRow">
+                <TextView
+                    style="@style/SwitchRowLabel"
+                    android:text="@string/label_use_builtin_logo" />
+
+                <com.google.android.material.materialswitch.MaterialSwitch
+                    android:id="@+id/swUseBuiltinLogo"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" />
+            </LinearLayout>
+
+            <LinearLayout style="@style/SwitchRow">
+                <TextView style="@style/SwitchRowLabel" android:text="@string/label_show_card" />
+                <com.google.android.material.materialswitch.MaterialSwitch
+                    android:id="@+id/swShowCard"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" />
+            </LinearLayout>
+
+            <!-- ==================== 地点 ==================== -->
+            <TextView style="@style/SectionTitle" android:text="@string/sec_addr" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <com.google.android.material.textfield.TextInputLayout
+                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:hint="@string/hint_addr">
+
+                    <com.google.android.material.textfield.MaterialAutoCompleteTextView
+                        android:id="@+id/etAddr"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:inputType="text"
+                        android:maxLines="1" />
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <ImageButton
+                    android:id="@+id/btnGeo"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:layout_marginStart="8dp"
+                    android:background="@drawable/bg_round_light"
+                    android:contentDescription="@string/btn_geo"
+                    android:src="@drawable/ic_location"
+                    app:tint="@color/accent" />
+            </LinearLayout>
+
+            <LinearLayout style="@style/SwitchRow">
+                <TextView style="@style/SwitchRowLabel" android:text="@string/label_auto_addr" />
+                <com.google.android.material.materialswitch.MaterialSwitch
+                    android:id="@+id/swAutoAddr"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" />
+            </LinearLayout>
+
+            <LinearLayout style="@style/SwitchRow">
+                <TextView style="@style/SwitchRowLabel" android:text="@string/label_show_addr" />
+                <com.google.android.material.materialswitch.MaterialSwitch
+                    android:id="@+id/swShowAddr"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" />
+            </LinearLayout>
+
+            <!-- ==================== 日期与时间 ==================== -->
+            <TextView style="@style/SectionTitle" android:text="@string/sec_time" />
+
+            <LinearLayout style="@style/SwitchRow">
+                <TextView style="@style/SwitchRowLabel" android:text="@string/label_show_time" />
+                <com.google.android.material.materialswitch.MaterialSwitch
+                    android:id="@+id/swShowTime"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" />
+            </LinearLayout>
+
+            <LinearLayout style="@style/SwitchRow">
+                <TextView style="@style/SwitchRowLabel" android:text="@string/label_show_sec" />
+                <com.google.android.material.materialswitch.MaterialSwitch
+                    android:id="@+id/swShowSec"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" />
+            </LinearLayout>
+
+            <LinearLayout style="@style/SwitchRow">
+                <TextView style="@style/SwitchRowLabel" android:text="@string/label_show_date" />
+                <com.google.android.material.materialswitch.MaterialSwitch
+                    android:id="@+id/swShowDate"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" />
+            </LinearLayout>
+
+            <LinearLayout style="@style/SwitchRow">
+                <TextView style="@style/SwitchRowLabel" android:text="@string/label_manual_time" />
+                <com.google.android.material.materialswitch.MaterialSwitch
+                    android:id="@+id/swManualTime"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/tvManualTime"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:textSize="15sp"
+                    tools:text="2026.09.27 10:06" />
+
+                <Button
+                    android:id="@+id/btnPickTime"
+                    style="@style/Widget.Material3.Button.TonalButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:minWidth="0dp"
+                    android:text="@string/btn_pick_time" />
+            </LinearLayout>
+
+            <TextView style="@style/HintText" android:text="@string/helper_manual_time" />
+
+            <!-- ==================== 补充信息 ==================== -->
+            <TextView style="@style/SectionTitle" android:text="@string/sec_extra" />
+
+            <com.google.android.material.textfield.TextInputLayout
+                style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="@string/hint_note">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/etNote"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="text"
+                    android:maxLines="1" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <LinearLayout style="@style/SwitchRow">
+                <TextView style="@style/SwitchRowLabel" android:text="@string/label_show_note" />
+                <com.google.android.material.materialswitch.MaterialSwitch
+                    android:id="@+id/swShowNote"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" />
+            </LinearLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:hint="@string/hint_name">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/etName"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="textPersonName"
+                    android:maxLines="1" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <LinearLayout style="@style/SwitchRow">
+                <TextView style="@style/SwitchRowLabel" android:text="@string/label_show_name" />
+                <com.google.android.material.materialswitch.MaterialSwitch
+                    android:id="@+id/swShowName"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" />
+            </LinearLayout>
+
+            <TextView style="@style/HintText" android:text="@string/helper_extra" />
+
+            <!-- ==================== 右下角品牌与防伪码 ==================== -->
+            <TextView style="@style/SectionTitle" android:text="@string/sec_brand" />
+
+            <com.google.android.material.textfield.TextInputLayout
+                style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="@string/hint_brand_name">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/etBrandName"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="text"
+                    android:maxLines="1" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:hint="@string/hint_brand_slogan">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/etBrandSlogan"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="text"
+                    android:maxLines="1" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <LinearLayout style="@style/SwitchRow">
+                <TextView style="@style/SwitchRowLabel" android:text="@string/label_show_brand" />
+                <com.google.android.material.materialswitch.MaterialSwitch
+                    android:id="@+id/swShowBrand"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" />
+            </LinearLayout>
+
+            <LinearLayout style="@style/SwitchRow">
+                <TextView style="@style/SwitchRowLabel" android:text="@string/label_show_code" />
+                <com.google.android.material.materialswitch.MaterialSwitch
+                    android:id="@+id/swShowCode"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" />
+            </LinearLayout>
+
+            <TextView style="@style/HintText" android:text="@string/helper_brand" />
+
+            <!-- ==================== 位置 ==================== -->
+            <TextView style="@style/SectionTitle" android:text="@string/sec_pos" />
+
+            <RadioGroup
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <RadioButton
+                    android:id="@+id/rbBottom"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="true"
+                    android:text="@string/pos_bottom" />
+
+                <RadioButton
+                    android:id="@+id/rbTop"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="20dp"
+                    android:text="@string/pos_top" />
+            </RadioGroup>
+
+            <!-- ==================== 高级 ==================== -->
+            <TextView style="@style/SectionTitle" android:text="@string/sec_advanced" />
+
+            <LinearLayout style="@style/SwitchRow">
+                <TextView style="@style/SwitchRowLabel" android:text="@string/label_show_coord" />
+                <com.google.android.material.materialswitch.MaterialSwitch
+                    android:id="@+id/swShowCoord"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" />
+            </LinearLayout>
+
+            <LinearLayout style="@style/SwitchRow">
+                <TextView style="@style/SwitchRowLabel" android:text="@string/label_show_acc" />
+                <com.google.android.material.materialswitch.MaterialSwitch
+                    android:id="@+id/swShowAcc"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" />
+            </LinearLayout>
+
+            <LinearLayout style="@style/SwitchRow">
+                <TextView style="@style/SwitchRowLabel" android:text="@string/label_show_alt" />
+                <com.google.android.material.materialswitch.MaterialSwitch
+                    android:id="@+id/swShowAlt"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" />
+            </LinearLayout>
+
+            <LinearLayout style="@style/SwitchRow">
+                <TextView style="@style/SwitchRowLabel" android:text="@string/label_mirror" />
+                <com.google.android.material.materialswitch.MaterialSwitch
+                    android:id="@+id/swMirrorSave"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" />
+            </LinearLayout>
+
+            <Button
+                android:id="@+id/doneButton"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:layout_marginTop="24dp"
+                android:text="@string/btn_done" />
+        </LinearLayout>
+    </ScrollView>
+</LinearLayout>

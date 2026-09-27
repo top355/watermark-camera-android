@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">打卡水印相机</string>
+    <string name="settings_title">水印设置</string>
+
+    <!-- 定位状态一律用短词，状态由左侧小圆点的颜色共同表达 -->
+    <string name="gps_locating">定位中</string>
+    <string name="gps_ready">已定位</string>
+    <string name="gps_denied">未授权</string>
+    <string name="gps_bad">不可用</string>
+    <string name="shot_count_zero">已拍 0 张</string>
+    <string name="last_shot">最近一张</string>
+    <string name="shoot">拍照</string>
+    <string name="flip_camera">切换摄像头</string>
+
+    <!-- 相册图片加水印 -->
+    <string name="pick_photo">相册选图加水印</string>
+    <string name="pick_photo_fail">这个图片读不了，换一张试试</string>
+    <string name="pick_photo_working">正在生成…</string>
+    <string name="pick_photo_preview_title">预览</string>
+    <string name="pick_photo_preview_helper">水印与拍摄时完全一致；满意再保存</string>
+    <string name="pick_photo_again">换一张</string>
+    <string name="pick_photo_save">保存到相册</string>
+    <string name="pick_photo_saved">已保存到相册</string>
+    <string name="pick_photo_busy">正在处理上一张，稍候</string>
+
+    <!-- 拍照界面直接填地点 -->
+    <string name="addr_placeholder">点此填写地点</string>
+    <string name="addr_edit_title">填写地点</string>
+    <string name="addr_edit_helper">会印在照片上；填过的会记住</string>
+    <string name="addr_geo_ready">已定位 ±%1$d 米</string>
+    <string name="addr_geo_denied">未取得定位，直接手填即可</string>
+    <string name="addr_geo_hint">点此填写地点</string>
+    <string name="btn_geo_lookup">用当前定位反查</string>
+    <string name="addr_saved">地点已更新</string>
+    <string name="addr_cleared">地点已清空</string>
+    <string name="geo_no_result">没查到，请手填</string>
+    <string name="geo_need_gps">还没定位到，直接手填即可</string>
+    <string name="geo_locating_hint">正在反查…</string>
+
+    <string name="sec_card">打卡卡片</string>
+    <string name="sec_addr">地点</string>
+    <string name="sec_time">日期与时间</string>
+    <string name="sec_extra">补充信息</string>
+    <string name="sec_pos">水印位置</string>
+    <string name="sec_advanced">高级（默认关闭）</string>
+
+    <string name="hint_card_title">卡片标签</string>
+    <string name="helper_card_title">黄色方块里的字，默认「打卡」</string>
+    <string name="hint_unit">单位 / 公司名称</string>
+    <string name="helper_unit">显示在卡片右侧；有 Logo 时被 Logo 顶掉（想用文字就关掉下面的内置 Logo）</string>
+    <string name="label_logo">公司 Logo</string>
+    <string name="btn_pick">选择</string>
+    <string name="btn_clear">清除</string>
+    <string name="label_use_builtin_logo">使用内置占位 Logo</string>
+    <string name="label_show_card">显示卡片</string>
+
+    <string name="hint_addr">地点</string>
+    <string name="btn_geo">按定位反查地点</string>
+    <string name="label_auto_addr">自动获取地点（定位后自动填）</string>
+    <string name="label_show_addr">显示地点</string>
+
+    <string name="label_show_time">显示时间</string>
+    <string name="label_show_sec">时间精确到秒</string>
+    <string name="label_show_date">显示日期与星期</string>
+    <string name="label_manual_time">手动指定日期时间</string>
+    <string name="manual_time_locked">水印时间已锁定为 %1$s</string>
+    <string name="btn_pick_time">修改</string>
+    <string name="helper_manual_time">打开后所有照片都印这个时间，不再跟手机时钟走（补拍、补录用）。\n防伪码也把时间算进去，所以时间一变、码就跟着变 —— 它绑定的本来就是照片上写的内容。</string>
+
+    <string name="hint_note">备注</string>
+    <string name="label_show_note">显示备注</string>
+    <string name="hint_name">打卡人</string>
+    <string name="label_show_name">显示打卡人</string>
+    <string name="helper_extra">填了内容就会显示（开关默认关闭，首次填好会自动打开）。\n水印上这两行都带琥珀黄小标签「备注」「打卡人」，一眼能分清。</string>
+
+    <string name="sec_brand">右下角品牌与防伪码</string>
+    <string name="hint_brand_name">品牌名</string>
+    <string name="hint_brand_slogan">标语</string>
+    <string name="label_show_brand">显示品牌区</string>
+    <string name="label_show_code">显示防伪码</string>
+    <string name="helper_brand">右下角三行，右对齐、字号逐行变小：品牌名 → 标语 → 防伪码。\n品牌名与标语默认是内置矢量稿（不是系统字体）——换台手机、换个 ROM，这两个词条长得完全一样；标语后面那块浅灰底也是稿子的一部分。\n改掉上面任意一格，那一行就退回系统字体渲染（矢量稿只做了内置的那 10 个字）。\n防伪码由这张照片的时间、地点、备注、打卡人、机型算出，不是随机数。\n它能证明「水印没被改过」——拿图上的文字重算，能复现出同一个码；\n但它还不能证明「这张照片确实是这台设备拍的」，那需要把摘要存到服务器备查（后续版本）。</string>
+
+    <string name="pos_bottom">画面底部</string>
+    <string name="pos_top">画面顶部</string>
+
+    <string name="label_show_coord">经纬度</string>
+    <string name="label_show_acc">定位精度 ±m</string>
+    <string name="label_show_alt">海拔</string>
+    <string name="label_mirror">前置摄像头拍照时镜像保存</string>
+    <string name="flash_toggle">闪光灯</string>
+    <string name="flash_shot">拍照时闪一下</string>
+    <string name="flash_torch">补光：常亮</string>
+    <string name="flash_off">闪光灯：关</string>
+    <string name="flash_unsupported">这个摄像头没有闪光灯</string>
+
+    <string name="btn_done">完成</string>
+</resources>

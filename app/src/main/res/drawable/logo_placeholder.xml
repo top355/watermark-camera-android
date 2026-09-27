@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  内置占位 Logo：中性灰蓝圆角方块 + 白色快门环，**不含任何公司标识**。
+
+  为什么是手写而不是描摹：这份图形的用途只是"别让卡片右侧空着"，
+  它不该长得像某个具体单位。想用自己的图，在设置页选一张即可（会覆盖它）。
+
+  同一份图形存在于三处，改一处必须同步另两处，用 verify/logo-parity.js 查：
+    1. watermark-camera/assets/logo-placeholder.svg   （真源，网页版用）
+    2. watermark-camera/index.html 的 BUILTIN_LOGO_SVG（内联，网页版单文件不能 fetch）
+    3. 本文件                                          （安卓 VectorDrawable）
+  注意 pathData 必须与 SVG 的 d **逐字相同**，viewport 与 viewBox 一致。
+
+  viewport 2720×2200、340dp×275dp 沿用自上一版，别顺手改 ——
+  LogoStore 用 intrinsic 宽高算比例，改了会让水印卡片的版式数值整体平移。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="340dp"
+    android:height="275dp"
+    android:viewportWidth="2720"
+    android:viewportHeight="2200">
+    <path
+        android:fillColor="#3E4C59"
+        android:fillType="evenOdd"
+        android:pathData="M500 200L2220 200A300 300 0 0 1 2520 500L2520 1700A300 300 0 0 1 2220 2000L500 2000A300 300 0 0 1 200 1700L200 500A300 300 0 0 1 500 200Z" />
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="140"
+        android:pathData="M900 1100A460 460 0 1 1 1820 1100A460 460 0 1 1 900 1100Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M1190 1100A170 170 0 1 1 1530 1100A170 170 0 1 1 1190 1100Z" />
+</vector>

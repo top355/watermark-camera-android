@@ -1,0 +1,177 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@android:color/black">
+
+    <FrameLayout
+        android:id="@+id/previewBox"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <androidx.camera.view.PreviewView
+            android:id="@+id/previewView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            app:scaleType="fitCenter" />
+
+        <!-- 尺寸由代码按相机画面比例设定，保证与出图一致 -->
+        <com.daka.watermarkcamera.WatermarkOverlayView
+            android:id="@+id/overlay"
+            android:layout_width="1dp"
+            android:layout_height="1dp"
+            android:layout_gravity="center" />
+    </FrameLayout>
+
+    <LinearLayout
+        android:id="@+id/topBar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="12dp"
+        android:paddingTop="10dp"
+        android:paddingEnd="12dp"
+        android:paddingBottom="4dp">
+
+        <!--
+          点一下就能在拍照界面直接改地点，不用进设置页。
+          宽度必须是 0dp + weight=1：原来写 wrap_content 时，地点一长（maxWidth 190dp）
+          整行的需求宽度就超过屏宽，LinearLayout 会把右边的按钮顶到屏幕外 ——
+          表现就是「设置图标显示不全」。改成吃剩余宽度后，
+          右侧三个控件的位置永远由它们自己决定，地点再长也只是自己省略号。
+        -->
+        <LinearLayout
+            android:id="@+id/gpsPill"
+            android:layout_width="0dp"
+            android:layout_height="34dp"
+            android:layout_marginEnd="8dp"
+            android:layout_weight="1"
+            android:background="@drawable/bg_pill"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="13dp"
+            android:paddingEnd="13dp">
+
+            <View
+                android:id="@+id/gpsDot"
+                android:layout_width="7dp"
+                android:layout_height="7dp"
+                android:background="@drawable/dot_wait" />
+
+            <ImageView
+                android:layout_width="13dp"
+                android:layout_height="13dp"
+                android:layout_marginStart="7dp"
+                android:contentDescription="@null"
+                android:src="@drawable/ic_location" />
+
+            <TextView
+                android:id="@+id/gpsTxt"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="5dp"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:singleLine="true"
+                android:text="@string/addr_placeholder"
+                android:textColor="@color/hud_text"
+                android:textSize="12.5sp" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/cntPill"
+            android:layout_width="wrap_content"
+            android:layout_height="34dp"
+            android:background="@drawable/bg_pill"
+            android:gravity="center"
+            android:paddingStart="13dp"
+            android:paddingEnd="13dp"
+            android:text="@string/shot_count_zero"
+            android:textColor="@color/hud_text"
+            android:textSize="12.5sp" />
+
+        <ImageButton
+            android:id="@+id/btnFlash"
+            android:layout_width="38dp"
+            android:layout_height="38dp"
+            android:layout_marginStart="8dp"
+            android:background="@drawable/bg_pill"
+            android:contentDescription="@string/flash_toggle"
+            android:src="@drawable/ic_flash_off" />
+
+        <ImageButton
+            android:id="@+id/btnSettings"
+            android:layout_width="38dp"
+            android:layout_height="38dp"
+            android:layout_marginStart="8dp"
+            android:background="@drawable/bg_pill"
+            android:contentDescription="@string/settings_title"
+            android:src="@drawable/ic_settings" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/bottomBar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="26dp"
+        android:paddingEnd="26dp"
+        android:paddingBottom="14dp">
+
+        <ImageButton
+            android:id="@+id/thumb"
+            android:layout_width="52dp"
+            android:layout_height="52dp"
+            android:background="@drawable/bg_thumb"
+            android:clipToOutline="true"
+            android:contentDescription="@string/last_shot"
+            android:scaleType="centerCrop"
+            android:src="@drawable/ic_placeholder" />
+
+        <!--
+          给相册里的图加水印。放在缩略图右边而不是顶栏：顶栏已经被
+          地点重量过（见 topBar 注释），再加东西会在窄屏上把设置图标顶出去。
+        -->
+        <ImageButton
+            android:id="@+id/btnGallery"
+            android:layout_width="52dp"
+            android:layout_height="52dp"
+            android:layout_marginStart="10dp"
+            android:background="@drawable/bg_round"
+            android:contentDescription="@string/pick_photo"
+            android:src="@drawable/ic_gallery" />
+
+        <Space
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1" />
+
+        <ImageButton
+            android:id="@+id/shutter"
+            android:layout_width="76dp"
+            android:layout_height="76dp"
+            android:background="@drawable/bg_shutter"
+            android:contentDescription="@string/shoot" />
+
+        <Space
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1" />
+
+        <ImageButton
+            android:id="@+id/btnFlip"
+            android:layout_width="52dp"
+            android:layout_height="52dp"
+            android:background="@drawable/bg_round"
+            android:contentDescription="@string/flip_camera"
+            android:src="@drawable/ic_flip" />
+    </LinearLayout>
+</FrameLayout>
