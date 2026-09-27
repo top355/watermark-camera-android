@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  弹出卡片的壳：一层半透明遮罩 + 一张居中圆角卡（标题 / 可选副标题 / 内容 / 右下角按钮排）。
+
+  抽成壳而不是每个编辑器各写一份，是因为地点和日期时间两个弹窗**必须长得一模一样**：
+  同一张卡、同一个位置、同一排按钮。分开写的话，改了一处的圆角忘了另一处，
+  用户看到的就是"两个不同的功能"。
+
+  点遮罩关闭由 CardPopup 在本布局的根部挂监听完成（见 CardPopup.kt）：
+  window 是满屏的，系统那套 setCanceledOnTouchOutside 会认为"点哪儿都是外面"。
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/popupRoot"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/popup_scrim"
+    android:paddingStart="18dp"
+    android:paddingTop="26dp"
+    android:paddingEnd="18dp"
+    android:paddingBottom="26dp">
+
+    <!--
+      卡本身 clickable=true：把落在卡片上的触摸**吃掉**，
+      免得穿透到遮罩上变成"点卡片内部却把窗关了"。
+      子控件优先拿到事件，所以这只影响卡片自己的留白区域。
+    -->
+    <LinearLayout
+        android:id="@+id/popupCard"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:background="@drawable/bg_popup_card"
+        android:clickable="true"
+        android:focusable="true"
+        android:orientation="vertical"
+        android:paddingStart="20dp"
+        android:paddingTop="18dp"
+        android:paddingEnd="20dp"
+        android:paddingBottom="6dp">
+
+        <TextView
+            android:id="@+id/tvPopupTitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@color/popup_text"
+            android:textSize="17sp"
+            android:textStyle="bold"
+            tools:text="2026.09.27 星期日" />
+
+        <!-- 说明性副标题。不调用 CardPopup.subtitle() 就一直是 GONE，不占位 -->
+        <TextView
+            android:id="@+id/tvPopupSub"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:lineSpacingMultiplier="1.2"
+            android:textColor="@color/popup_text_dim"
+            android:textSize="12.5sp"
+            android:visibility="gone"
+            tools:text="水印上会印：2026.09.27 星期日 / 22:58"
+            tools:visibility="visible" />
+
+        <FrameLayout
+            android:id="@+id/popupBody"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp" />
+
+        <!-- 右下角按钮排：左起依次加入，右对齐。只放一个时也不会贴到左上角 -->
+        <LinearLayout
+            android:id="@+id/popupActions"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:gravity="end|center_vertical"
+            android:orientation="horizontal"
+            android:visibility="gone" />
+    </LinearLayout>
+</FrameLayout>

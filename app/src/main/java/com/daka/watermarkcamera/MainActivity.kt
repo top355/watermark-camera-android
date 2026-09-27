@@ -22,11 +22,13 @@ import android.os.Environment
 import android.provider.MediaStore
 import android.view.Gravity
 import android.view.Surface
+import android.view.View
 import android.view.ViewGroup
 import android.widget.ArrayAdapter
 import android.widget.AutoCompleteTextView
 import android.widget.FrameLayout
 import android.widget.ImageView
+import android.widget.NumberPicker
 import android.widget.TextView
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.PickVisualMediaRequest
@@ -223,6 +225,22 @@ class MainActivity : AppCompatActivity() {
         }
         /* 拍照界面直接改地点 */
         binding.gpsPill.setOnClickListener { editAddress() }
+
+        /*
+         * 点水印**上的字**就地改：地点行 → 地点编辑器，日期行 / 卡片里那串时间 → 日期时间滚轮。
+         *
+         * 顶栏那个胶囊仍然保留（两条路都要，用户不必先知道"能点水印"）。
+         * 点空白处浮层不放行之外的任何东西 —— 见 WatermarkOverlayView.onTouchEvent，
+         * 那里没命中就直接返回 false，事件继续落到预览区做对焦。
+         */
+        binding.overlay.onTap = { target ->
+            when (target) {
+                WatermarkRenderer.TapTarget.ADDR -> editAddress()
+                WatermarkRenderer.TapTarget.DATETIME -> editDateTime()
+                WatermarkRenderer.TapTarget.NONE -> Unit
+            }
+        }
+
         binding.btnFlash.setOnClickListener { toggleFlash() }
         /* 相册里的图也能加水印 —— 补拍、事后补录的场景全靠它 */
         /*
@@ -512,11 +530,14 @@ class MainActivity : AppCompatActivity() {
         camera?.cameraControl?.enableTorch(false)
     }
 
-    /* --------------------- 拍照界面直接改地点 --------------------- */
+    /* --------------- 拍照界面直接改地点 / 日期时间（弹出式） --------------- */
 
     /**
-     * 点顶部的胶囊就地改地点，不必进设置页。
+     * 地点的弹出式编辑器。顶栏那颗胶囊和**水印上的地点行**都会走到这里。
+     *
      * 带常用地点下拉（填过的自动记住），以及「用当前定位反查地名」。
+     * 壳用的是 [CardPopup] 而不是 AlertDialog：见那边的注释 ——
+     * 主要原因是它和日期时间编辑器要长得一模一样、且要能点遮罩关闭。
      */
     private fun editAddress() {
         val view = layoutInflater.inflate(R.layout.dialog_addr, null)
@@ -550,49 +571,203 @@ class MainActivity : AppCompatActivity() {
         }
         refreshState()
 
-        val dlg: AlertDialog = MaterialAlertDialogBuilder(this)
-            .setTitle(R.string.addr_edit_title)
-            .setView(view, 0, 0, 0, 0)
-            .setPositiveButton(R.string.btn_done) { _, _ ->
-                applyAddress(et.text?.toString() ?: "", fromGeo)
-            }
-            .setNegativeButton(android.R.string.cancel, null)
-            .setNeutralButton(R.string.btn_clear, null)
-            .create()
+        val popup = CardPopup(this)
+            .title(getString(R.string.addr_edit_title))
+            .body(view)
+            /* 有输入框，必须自己躲键盘 —— 见 CardPopup.avoidIme 的注释 */
+            .avoidIme()
 
-        dlg.setOnShowListener {
-            /* 「清空」不该顺手把窗关了 —— 用户多半是想重填 */
-            dlg.getButton(DialogInterface.BUTTON_NEUTRAL).setOnClickListener {
-                et.setText("")
-                et.requestFocus()
-                refreshState()
+        /* 「清空」不关窗 —— 用户多半是想重填，关掉了还得再点一遍 */
+        popup.action(getString(R.string.btn_clear)) {
+            et.setText("")
+            et.requestFocus()
+            refreshState()
+        }
+        popup.action(getString(R.string.btn_done), primary = true) {
+            applyAddress(et.text?.toString() ?: "", fromGeo)
+            it.dismiss()
+        }
+
+        /* 「反查」同样不关窗：回填后还要让用户确认/微调 */
+        btnGeo.setOnClickListener {
+            val l = loc
+            if (l == null) {
+                tvState.text = getString(R.string.geo_need_gps)
+                return@setOnClickListener
             }
-            /* 「反查」也不该关窗，回填后还要让用户确认/微调 */
-            btnGeo.setOnClickListener {
-                val l = loc
-                if (l == null) {
-                    tvState.text = getString(R.string.geo_need_gps)
-                    return@setOnClickListener
-                }
-                btnGeo.isEnabled = false
-                tvState.text = getString(R.string.geo_locating_hint)
-                lifecycleScope.launch {
-                    val name = Geo.reverse(this@MainActivity, l.lat, l.lon)
-                    btnGeo.isEnabled = true
-                    if (name.isNullOrBlank()) {
-                        tvState.text = getString(R.string.geo_no_result)
-                    } else {
-                        suppress = true
-                        et.setText(name)
-                        suppress = false
-                        fromGeo = true
-                        et.setSelection(name.length)
-                        refreshState()
-                    }
+            btnGeo.isEnabled = false
+            tvState.text = getString(R.string.geo_locating_hint)
+            lifecycleScope.launch {
+                val name = Geo.reverse(this@MainActivity, l.lat, l.lon)
+                btnGeo.isEnabled = true
+                if (name.isNullOrBlank()) {
+                    tvState.text = getString(R.string.geo_no_result)
+                } else {
+                    suppress = true
+                    et.setText(name)
+                    suppress = false
+                    fromGeo = true
+                    et.setSelection(name.length)
+                    refreshState()
                 }
             }
         }
-        dlg.show()
+
+        popup.show()
+    }
+
+    /**
+     * 日期时间的弹出式滚轮。**上面日期（年/月/日）、下面时间（时/分/秒）**，
+     * 水印上的日期行和卡片里那串时间都会走到这里。
+     *
+     * 一屏六条滚轮，而不是系统那套「先 DatePickerDialog、再 TimePickerDialog」两步走：
+     * 用户要的是"一眼看全、直接拨"，系统那两步要过两道窗点两次确定。
+     * 设置页里那份两步走的入口保留着（它是给"顺手改一下"用的，不必拨滚轮）。
+     *
+     * 选完的效果**立刻落到水印上**（保存后 config.manualTime 一开，
+     * 预览与出图都按这个时刻走），所以标题里那行就是"印出来会是什么样"。
+     */
+    private fun editDateTime() {
+        val view = layoutInflater.inflate(R.layout.popup_datetime, null)
+        val npY = view.findViewById<NumberPicker>(R.id.npYear)
+        val npMo = view.findViewById<NumberPicker>(R.id.npMonth)
+        val npD = view.findViewById<NumberPicker>(R.id.npDay)
+        val npH = view.findViewById<NumberPicker>(R.id.npHour)
+        val npMi = view.findViewById<NumberPicker>(R.id.npMinute)
+        val npS = view.findViewById<NumberPicker>(R.id.npSecond)
+        val btnUseNow = view.findViewById<MaterialButton>(R.id.btnUseNow)
+
+        /* 起点：已经锁了就用锁住那一刻，没锁就用现在 */
+        val base = cfg.now()
+
+        npY.minValue = 2000
+        npY.maxValue = 2099
+        npMo.minValue = 1
+        npMo.maxValue = 12
+        npD.minValue = 1
+        npD.maxValue = 31
+        npH.minValue = 0
+        npH.maxValue = 23
+        npMi.minValue = 0
+        npMi.maxValue = 59
+        npS.minValue = 0
+        npS.maxValue = 59
+
+        /* 月/日/时/分/秒 补零成两位，滚轮才对得齐（"9" 和 "12" 混排看着是歪的） */
+        npMo.setFormatter { String.format(Locale.CHINA, "%02d", it) }
+        npD.setFormatter { String.format(Locale.CHINA, "%02d", it) }
+        npH.setFormatter { String.format(Locale.CHINA, "%02d", it) }
+        npMi.setFormatter { String.format(Locale.CHINA, "%02d", it) }
+        npS.setFormatter { String.format(Locale.CHINA, "%02d", it) }
+
+        for (np in listOf(npY, npMo, npD, npH, npMi, npS)) {
+            /*
+             * 关掉"点一下就弹出软键盘改数字"：滚轮本来就是拨的，
+             * 弹一次键盘会把整张卡顶上去，还得先收键盘才能接着拨。
+             */
+            np.descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
+            np.setWrapSelectorWheel(false)
+        }
+        npY.value = base.get(Calendar.YEAR)
+        npMo.value = base.get(Calendar.MONTH) + 1
+        npD.value = base.get(Calendar.DAY_OF_MONTH)
+        npH.value = base.get(Calendar.HOUR_OF_DAY)
+        npMi.value = base.get(Calendar.MINUTE)
+        npS.value = base.get(Calendar.SECOND)
+
+        var fmtSec = cfg.showSec
+        var suppressDay = false
+
+        fun pickCalendar(): Calendar {
+            val c = Calendar.getInstance()
+            c.set(
+                npY.value, npMo.value - 1, npD.value,
+                npH.value, npMi.value, npS.value
+            )
+            c.set(Calendar.MILLISECOND, 0)
+            return c
+        }
+
+        /**
+         * 2 月的 30 号这种日期不该存在。改年月时把当月的最大天数重新钉一遍，
+         * 超了就把日往回拉 —— 否则滚轮会停在一个 Calendar 会静默进位到 3 月的值上，
+         * 用户看到「2月30日」却印出「3月2日」。
+         */
+        fun clampDay() {
+            val c = Calendar.getInstance()
+            c.set(npY.value, npMo.value - 1, 1)
+            val max = c.getActualMaximum(Calendar.DAY_OF_MONTH)
+            suppressDay = true
+            npD.maxValue = max
+            if (npD.value > max) npD.value = max
+            suppressDay = false
+        }
+
+        val popup = CardPopup(this).body(view)
+
+        fun refresh() {
+            val c = pickCalendar()
+            val t = if (fmtSec) {
+                String.format(Locale.CHINA, "%02d:%02d:%02d", npH.value, npMi.value, npS.value)
+            } else {
+                String.format(Locale.CHINA, "%02d:%02d", npH.value, npMi.value)
+            }
+            popup.title(WatermarkRenderer.dateText(c))
+            popup.subtitle(getString(R.string.watermark_will_print, "${WatermarkRenderer.dateText(c)}  $t"))
+            btnUseNow.visibility = if (cfg.manualTime) View.VISIBLE else View.GONE
+        }
+
+        val listener = NumberPicker.OnValueChangeListener { _, _, _ ->
+            if (!suppressDay) clampDay()
+            refresh()
+        }
+        for (np in listOf(npY, npMo, npD, npH, npMi, npS)) np.setOnValueChangedListener(listener)
+        clampDay()
+        refresh()
+
+        /*
+         * 这个按钮的文字要跟着当前格式变（"时:分" ↔ "时:分:秒"），
+         * 所以得先有个能引用到自己的名字 —— 用局部 lateinit var，别在初始化式里自引用。
+         */
+        lateinit var btnFmt: MaterialButton
+        btnFmt = popup.action(
+            getString(if (fmtSec) R.string.fmt_time_format_on else R.string.fmt_time_format_off)
+        ) {
+            fmtSec = !fmtSec
+            btnFmt.text =
+                getString(if (fmtSec) R.string.fmt_time_format_on else R.string.fmt_time_format_off)
+            refresh()
+        }
+
+        popup.action(getString(R.string.btn_save), primary = true) {
+            val c = pickCalendar()
+            cfg.manualTime = true
+            cfg.manualTimeMs = c.timeInMillis
+            cfg.showSec = fmtSec
+            Prefs.save(this, cfg)
+            binding.overlay.config = cfg
+            binding.overlay.invalidate()
+            /*
+             * 顺手把「时间已锁」那条提醒标记成"已经说过了"：
+             * 用户刚刚亲手拨的时间，回到预览再弹一句"时间已锁定"是多余的。
+             */
+            hintedManualMs = cfg.manualTimeMs
+            toast(getString(R.string.datetime_saved, WatermarkRenderer.dateText(c) + "  " + WatermarkRenderer.timeText(cfg, c)))
+            it.dismiss()
+        }
+
+        /* 「回到当前时间」= 关掉手动锁，水印重新跟手机时钟走 */
+        btnUseNow.setOnClickListener {
+            cfg.manualTime = false
+            Prefs.save(this, cfg)
+            binding.overlay.config = cfg
+            binding.overlay.invalidate()
+            hintedManualMs = 0L
+            toast(getString(R.string.datetime_now_restored))
+            popup.dismiss()
+        }
+
+        popup.show()
     }
 
     /**

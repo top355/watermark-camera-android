@@ -38,6 +38,17 @@
     <string name="geo_need_gps">还没定位到，直接手填即可</string>
     <string name="geo_locating_hint">正在反查…</string>
 
+    <!-- 弹出式编辑器：点水印上的地点 / 日期时间直接改 -->
+    <string name="btn_save">保存</string>
+    <string name="popup_use_now">回到当前时间</string>
+    <string name="label_date_wheel">日期</string>
+    <string name="label_time_wheel">时间</string>
+    <string name="fmt_time_format_on">时间格式：时:分:秒</string>
+    <string name="fmt_time_format_off">时间格式：时:分</string>
+    <string name="watermark_will_print">水印上会印：%1$s</string>
+    <string name="datetime_saved">水印时间已设为 %1$s</string>
+    <string name="datetime_now_restored">已回到当前时间，跟手机时钟走</string>
+
     <string name="sec_card">打卡卡片</string>
     <string name="sec_addr">地点</string>
     <string name="sec_time">日期与时间</string>

@@ -8,6 +8,52 @@
         <item name="android:navigationBarColor">@android:color/transparent</item>
     </style>
 
+    <!--
+      弹出卡片的窗口主题。
+
+      parent 用的是 **Light** 而不是 App 那条 DayNight：卡片是浅色的（见 colors.xml），
+      里面所有 ?attr/ 文本色必须解析成深色。挂 DayNight 的话深色模式下
+      NumberPicker 的滚轮字、输入框的提示字都会变成白的，压在浅卡上直接看不见。
+
+      windowIsFloating=false 也是必须的：默认的悬浮窗只占"卡片那么大"，
+      于是遮罩盖不满屏幕、点"卡片外面"也判不出来（系统按 window 边界算）。
+      关掉悬浮之后这就是一扇满屏的窗，遮罩铺满，点哪儿都能自己判。
+    -->
+    <style name="Theme.WatermarkCamera.Popup" parent="Theme.Material3.Light.NoActionBar">
+        <item name="colorPrimary">@color/accent</item>
+        <item name="colorOnPrimary">@color/white</item>
+        <item name="android:windowIsFloating">false</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowNoTitle">true</item>
+        <!-- 遮罩是我们自己在布局里画的那一层，不要再叠一层系统 dim -->
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:windowAnimationStyle">@null</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+
+    <!-- 弹出卡片里「日期」「时间」两组滚轮上方的小标题 -->
+    <style name="PopupGroupLabel">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">10dp</item>
+        <item name="android:layout_marginBottom">2dp</item>
+        <item name="android:letterSpacing">0.05</item>
+        <item name="android:textColor">@color/accent</item>
+        <item name="android:textSize">12.5sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
+    <!--
+      弹出卡片右下角那排按钮的两种形态。
+      在**本工程**里包一层，而不是在代码里引 `com.google.android.material.R.style.*`：
+      那个 R 类里的名字随 Material 版本变（这次编译就撞上了 Unresolved reference），
+      写成自己的 style，版本一升只会在资源编译期报错、一眼看得出该改哪。
+    -->
+    <style name="PopupActionText" parent="Widget.Material3.Button.TextButton" />
+
+    <style name="PopupActionPrimary" parent="Widget.Material3.Button" />
+
     <style name="SectionTitle">
         <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">wrap_content</item>

@@ -11,6 +11,7 @@ import android.graphics.Typeface
 import java.util.Calendar
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.max
 import kotlin.math.min
 
 /**
@@ -46,13 +47,48 @@ object WatermarkRenderer {
      * 之前两行都是 34f 常规体纯白字，唯一区别只有「打卡人：」这个前缀，
      * 在图上根本分不出哪行是哪行。有了琥珀黄的标签，层级一眼可辨，
      * 而且不用把「备注」「打卡人」这几个字塞进正文里、变成内容的一部分。
+     *
+     * [kind] 说明这一行是干什么的 —— 只有地点行和日期行能被点开编辑（见 [hitTest]）。
+     * 靠文字内容反推是行不通的：地点是用户随手填的，日期文案也可能被改。
      */
     private class Line(
         val text: String,
         val size: Float,
         val bold: Boolean,
-        val label: String? = null
+        val label: String? = null,
+        val kind: Int = KIND_TEXT
     )
+
+    /* internal 而非 private：单测要拿它断言「地点行的标记确实是 ADDR」 */
+    internal const val KIND_TEXT = 0
+    internal const val KIND_ADDR = 1
+    internal const val KIND_DATE = 2
+
+    /** 正文块与品牌区之间至少留的横向间隙（1080 基准） */
+    private const val BRAND_GAP_X = 16f
+
+    /** 卡片与下方正文块之间的纵向间隙（1080 基准） */
+    private const val GAP_CARD = 28f
+
+    /** 正文块/卡片与品牌区之间的纵向间隙（1080 基准） */
+    private const val GAP_BRAND = 18f
+
+    /**
+     * 命中判定往外放的一圈（1080 基准）。
+     * 12 * s 在 1440 宽的画面上是 16px —— 手指的抖动差不多就是这个量级。
+     */
+    private const val HIT_SLACK = 12f
+
+    /** 按下反馈的底色：半透明白。只在按住时出现，成图上没有 */
+    private const val HIGHLIGHT_BG = 0x59FFFFFF.toInt()
+
+    /**
+     * 点水印上的哪一块。
+     *
+     * 地点和日期时间分开，是因为它们该开不同的编辑器；
+     * [NONE] 表示这一下跟水印无关，浮层不该把事件吃掉（否则预览区就"死"了）。
+     */
+    enum class TapTarget { NONE, ADDR, DATETIME }
 
     fun draw(
         canvas: Canvas,
@@ -61,56 +97,27 @@ object WatermarkRenderer {
         cfg: WatermarkConfig,
         logo: Bitmap?,
         now: Calendar,
-        loc: LocInfo?
+        loc: LocInfo?,
+        /**
+         * 按下的目标（只有预览浮层会传）。默认 [TapTarget.NONE] ——
+         * 出图走 [ImageWatermarker]，永不传它，所以成图上不会有按下反馈那一层。
+         */
+        highlight: TapTarget = TapTarget.NONE
     ) {
         if (w <= 1f || h <= 1f) return
 
         val fill = Paint(Paint.ANTI_ALIAS_FLAG)
         val text = Paint(Paint.ANTI_ALIAS_FLAG)
 
-        /*
-         * 归一化基准取「短边」而不是宽度：
-         * 竖屏时短边就是宽度，行为与旧版逐像素一致（零回归）；
-         * 横屏时若仍按宽度算，s 会从 1.33 涨到 1.78，水印被放大近 40% 且糊出屏幕。
-         */
-        val s = min(w, h) / BASE
-        val pad = 40f * s
-
-        val lines = buildLines(cfg, now, loc)
-        /*
-         * 每行各自缩到「放得下」为止。这是「地点那行太长」的根治办法：
-         * 以前长地名会直接铺到画面外（右边被切掉），现在只缩这一行的字号，
-         * 下限 0.66 倍 —— 版面骨架、行距关系全都不动，只有超标的那行变小。
-         */
-        val maxTextW = w - pad * 2f
-        val fs = FloatArray(lines.size) { fitLineSize(text, lines[it], s, maxTextW) }
-        val lineH = FloatArray(lines.size) { fs[it] * 1.34f }
-        val textH = lineH.fold(0f) { a, b -> a + b }
-        val cardH = if (cfg.showCard) CARD_H * s else 0f
-        val gap = if (cardH > 0f && lines.isNotEmpty()) 28f * s else 0f
-
-        /*
-         * 品牌区**单独占一行**，不跟左侧的地点/备注挤在同一条水平带上。
-         * 试过"与左侧文字同层"（更接近参考图），但左侧最长那行是地点（42f 粗体），
-         * 长备注能到 25 字以上，两者必然在窄屏上撞车 —— 要么给左侧缩字号（伤主体信息），
-         * 要么给品牌缩到看不清。垂直分开后两边各自完整，零碰撞。
-         */
-        val brand = measureBrand(w, s, cfg, now, loc, text)
-        val brandH = brand?.h ?: 0f
-        val hasBody = cardH > 0f || lines.isNotEmpty()
-        val gapBrand = if (brand != null && hasBody) 18f * s else 0f
-
-        val total = cardH + gap + textH + gapBrand + brandH
-        if (total <= 0f) return
-
-        val top = cfg.posTop
-        val y0 = if (top) pad else h - pad - total
+        val g = measure(w, h, cfg, logo, now, loc, text)
+        if (g.total <= 0f) return
+        val pos = place(h, g, cfg.posTop)
 
         /* 渐变遮罩：保证白字在亮背景上也读得清 */
-        val scrimH = min(h * 0.62f, total + pad * 2.2f)
-        val yStart = if (top) 0f else h - scrimH
-        val yEnd = if (top) scrimH else h
-        val colors = if (top) {
+        val scrimH = min(h * 0.62f, pos.total + g.pad * 2.2f)
+        val yStart = if (cfg.posTop) 0f else h - scrimH
+        val yEnd = if (cfg.posTop) scrimH else h
+        val colors = if (cfg.posTop) {
             intArrayOf(0xA8000000.toInt(), 0x00000000)
         } else {
             intArrayOf(0x00000000, 0xCC000000.toInt())
@@ -120,46 +127,302 @@ object WatermarkRenderer {
         canvas.drawRect(0f, yStart, w, yEnd, fill)
         fill.shader = null
 
-        var y = y0
-        /* 顶部模式时品牌区在最上（左上角），其余顺序与底部模式一致 */
-        if (top && brand != null) {
-            drawBrand(canvas, brand, s, y, text, fill)
-            y += brandH + gapBrand
-        }
-        if (cardH > 0f) {
-            drawCard(canvas, w, s, y, cardH, pad, logo, cfg, now, fill, text)
-            y += cardH + gap
-        }
+        /* 按下反馈画在遮罩之上、文字之下 —— 盖在文字上就把字遮了 */
+        if (highlight != TapTarget.NONE) drawHighlight(canvas, g, pos, highlight, fill)
 
-        if (lines.isNotEmpty()) {
-            val save = canvas.save()
-            text.setShadowLayer(11f * s, 0f, 2f * s, 0xB3000000.toInt())
-            text.textAlign = Paint.Align.LEFT
-            var yy = y + lineH[0] * 0.78f
-            for (i in lines.indices) {
-                val l = lines[i]
-                var x = pad
-                if (l.label != null) {
-                    text.typeface = Typeface.DEFAULT_BOLD
-                    text.textSize = fs[i]
-                    text.color = LABEL_BG
-                    canvas.drawText(l.label, x, yy, text)
-                    x += text.measureText(l.label) + 12f * s
-                }
-                text.typeface = if (l.bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
-                text.textSize = fs[i]
-                text.color = Color.WHITE
-                canvas.drawText(l.text, x, yy, text)
-                yy += lineH[i]
+        /* 顶部模式时品牌区在最上（右上角），其余顺序与底部模式一致 */
+        if (cfg.posTop && g.brand != null) {
+            drawBrand(canvas, g.brand, g.s, pos.brandTop, text, fill)
+        }
+        if (g.card != null) {
+            drawCard(canvas, g.card, g.s, pos.cardTop, pad = g.pad, logo = logo, cfg = cfg, now = now, fill = fill, text = text)
+        }
+        if (g.lines.isNotEmpty()) {
+            drawLines(canvas, g, pos.linesTop, text)
+        }
+        if (!cfg.posTop && g.brand != null) {
+            drawBrand(canvas, g.brand, g.s, pos.brandTop, text, fill)
+        }
+    }
+
+    /* ------------------- 几何：量一次，绘制与命中判定共用 ------------------- */
+
+    /**
+     * 量出来的尺寸。**位置不在这里** —— 位置由 [place] 按 [WatermarkConfig.posTop] 决定。
+     *
+     * 量一次、摆两套，是为了让「底部对齐」和「顶部堆叠」共用同一组字号；
+     * 分成两处各量一遍的话，同一行字在两种模式下的宽度会悄悄漂开。
+     */
+    private class Geometry(
+        val s: Float,
+        val pad: Float,
+        val cardH: Float,
+        val card: CardLayout?,
+        val brand: BrandLayout?,
+        val lines: List<Line>,
+        val lineFs: FloatArray,
+        val lineLh: FloatArray,
+        /** 每行实测总宽（含行首标签）—— 命中区靠它，别拿字号×字数估 */
+        val lineW: FloatArray,
+        /** 每行顶部相对正文块顶部的偏移 */
+        val lineDy: FloatArray,
+        /**
+         * 正文每行的宽度上界。留着它不是为了画图（画图看 [lineW]），
+         * 而是为了让测试能断言「地点没伸进品牌区那一列」——
+         * 没有这个数，就只能靠渲染图目测，而目测分不清"刚好贴边"和"压过去 3px"。
+         */
+        val maxTextW: Float,
+        val textH: Float,
+        val brandH: Float,
+        /** 卡片与下方正文之间（两者都在时才有） */
+        val gapCard: Float,
+        /** 正文/卡片块与品牌区之间 */
+        val gapBrand: Float,
+        val total: Float
+    )
+
+    /** 三块各自的顶部 y。缺的那块是 0，用之前先看对应对象是不是 null */
+    private class Placement(
+        val linesTop: Float,
+        val cardTop: Float,
+        val brandTop: Float,
+        val topMost: Float,
+        val total: Float
+    )
+
+    /**
+     * 量字号与各处间隙。绘制、命中判定、单测的几何断言都走这里 ——
+     * 一份算式三个用途，改了不会只改到一半。
+     *
+     * 正文每行的最大宽度**先收在品牌区左边界之内，再收在卡片之内**：
+     *
+     * 1. 品牌区右对齐、正文左对齐，**底部对齐之后两者落在同一条水平带上** ——
+     *    不加限制的话，长地名会直接压到品牌名上。原来靠"品牌区另起一段"躲开这个问题，
+     *    现在两段并排了，就得靠宽度约束。
+     * 2. 地点不该比上面那条时间条更宽（用户明确要的）。
+     *
+     * 两条都只是**上界**：够宽时字号一动不动，只有真超标的那一行才缩（下限 0.66 倍）。
+     */
+    private fun measure(
+        w: Float,
+        h: Float,
+        cfg: WatermarkConfig,
+        logo: Bitmap?,
+        now: Calendar,
+        loc: LocInfo?,
+        text: Paint
+    ): Geometry {
+        /*
+         * 归一化基准取「短边」而不是宽度：
+         * 竖屏时短边就是宽度，行为与旧版逐像素一致（零回归）；
+         * 横屏时若仍按宽度算，s 会从 1.33 涨到 1.78，水印被放大近 40% 且糊出屏幕。
+         */
+        val s = min(w, h) / BASE
+        val pad = 40f * s
+        val cardH = if (cfg.showCard) CARD_H * s else 0f
+        val lines = buildLines(cfg, now, loc)
+
+        val brand = measureBrand(w, s, cfg, now, loc, text)
+        val brandH = brand?.h ?: 0f
+
+        /* 上界一：不许伸进品牌区那一列 */
+        val brandLeft = if (brand != null) brand.right - brand.w else w - pad
+        val card = if (cardH > 0f) measureCard(w, s, cardH, pad, logo, cfg, now, text) else null
+        /* 上界二：不超过卡片。关掉卡片时退回旧行为（整幅内容区宽） */
+        /*
+         * 卡片这条上界只在**卡片真有时间大字**时才算数：
+         * 用户的原话是「地点不要超过上面的时间条」，对齐的对象是那条时间；
+         * 而卡片宽度是内容自适应的，关掉时间之后它会缩到只剩「打卡」标签那么宽
+         * （1440 宽下约 219px），照它去卡地点会把正常的短地名也逼到最小字号。
+         */
+        val timeBarW = if (card != null && cfg.showTime) card.w else null
+        val maxTextW = min(brandLeft - BRAND_GAP_X * s - pad, timeBarW ?: (w - pad * 2f))
+            .coerceAtLeast(1f)
+
+        /*
+         * 每行各自缩到「放得下」为止。这是「地点那行太长」的根治办法：
+         * 以前长地名会直接铺到画面外（右边被切掉），现在只缩这一行的字号，
+         * 下限 0.66 倍 —— 版面骨架、行距关系全都不动，只有超标的那行变小。
+         */
+        val fs = FloatArray(lines.size) { fitLineSize(text, lines[it], s, maxTextW) }
+        val lh = FloatArray(lines.size) { fs[it] * 1.34f }
+        val lw = FloatArray(lines.size) { lineWidth(text, lines[it], fs[it], s) }
+        val dy = FloatArray(lines.size)
+        for (i in 1 until lines.size) dy[i] = dy[i - 1] + lh[i - 1]
+        val textH = lh.fold(0f) { a, b -> a + b }
+
+        val hasBody = card != null || lines.isNotEmpty()
+        return Geometry(
+            s = s, pad = pad, cardH = cardH, card = card, brand = brand,
+            lines = lines, lineFs = fs, lineLh = lh, lineW = lw, lineDy = dy,
+            maxTextW = maxTextW, textH = textH, brandH = brandH,
+            gapCard = if (card != null && lines.isNotEmpty()) GAP_CARD * s else 0f,
+            gapBrand = if (brand != null && hasBody) GAP_BRAND * s else 0f,
+            total = cardH + (if (card != null && lines.isNotEmpty()) GAP_CARD * s else 0f) +
+                textH + (if (brand != null && hasBody) GAP_BRAND * s else 0f) + brandH
+        )
+    }
+
+    /**
+     * 按 [top] 把三块摆到画布上。
+     *
+     * 底部模式**以 `h - pad` 为共同基线**：正文块和品牌区各自按自己的高度往上让，
+     * 于是两者**底边严格对齐**（要的就是这个 —— 原来品牌区被摆在正文下方，
+     * 防伪码那行比日期低一截，看着像没对齐）。
+     *
+     * 卡片则被顶到「正文块顶」和「品牌区顶」里更靠上的那一个之上：
+     * 只留一行正文时（比如只显示日期），品牌区比正文块还高，
+     * 卡片要是照旧贴着正文，就会和品牌名挤在同一段高度里。
+     */
+    private fun place(h: Float, g: Geometry, top: Boolean): Placement {
+        if (top) {
+            val brandTop = if (g.brand != null) g.pad else 0f
+            var y = g.pad
+            if (g.brand != null) y += g.brandH + g.gapBrand
+            val cardTop = if (g.card != null) y else 0f
+            if (g.card != null) y += g.cardH + g.gapCard
+            val linesTop = if (g.lines.isNotEmpty()) y else 0f
+            val bottomMost = when {
+                g.lines.isNotEmpty() -> linesTop + g.textH
+                g.card != null -> cardTop + g.cardH
+                g.brand != null -> brandTop + g.brandH
+                else -> g.pad
             }
-            text.clearShadowLayer()
-            canvas.restoreToCount(save)
-            y += textH
+            return Placement(linesTop, cardTop, brandTop, g.pad, bottomMost - g.pad)
         }
 
-        if (!top && brand != null) {
-            drawBrand(canvas, brand, s, y + gapBrand, text, fill)
+        val bottom = h - g.pad
+        val linesTop = if (g.lines.isNotEmpty()) bottom - g.textH else bottom
+        val brandTop = if (g.brand != null) bottom - g.brandH else bottom
+        var cardTop = 0f
+        if (g.card != null) {
+            val above = if (g.lines.isNotEmpty()) min(linesTop, brandTop) else brandTop
+            val gap = if (g.lines.isNotEmpty()) g.gapCard else g.gapBrand
+            cardTop = above - gap - g.cardH
         }
+        var topMost = bottom
+        if (g.card != null) topMost = min(topMost, cardTop)
+        if (g.lines.isNotEmpty()) topMost = min(topMost, linesTop)
+        if (g.brand != null) topMost = min(topMost, brandTop)
+        return Placement(linesTop, cardTop, brandTop, topMost, bottom - topMost)
+    }
+
+    /**
+     * 点到水印上的哪一块。坐标是**画布本地坐标**（左上角为原点），
+     * 也就是浮层自己的坐标系 —— MainActivity 保证浮层的尺寸就是相机画面的显示矩形。
+     *
+     * 命中区每边比看到的再放一圈（[HIT_SLACK]）：小字号下手指差十几个像素太正常，
+     * 点不中只会让人以为"这功能没有"，而不是"我偏了一点"。
+     *
+     * 顺带把「品牌区整块」也放进来做未来扩展的落点？**不放** ——
+     * 宁可不响应，也不要在用户想点品牌名时弹出一个跟品牌无关的编辑器。
+     */
+    internal fun hitTest(
+        w: Float,
+        h: Float,
+        cfg: WatermarkConfig,
+        logo: Bitmap?,
+        now: Calendar,
+        loc: LocInfo?,
+        x: Float,
+        y: Float
+    ): TapTarget {
+        if (w <= 1f || h <= 1f) return TapTarget.NONE
+        val g = measure(w, h, cfg, logo, now, loc, Paint(Paint.ANTI_ALIAS_FLAG))
+        if (g.total <= 0f) return TapTarget.NONE
+        val pos = place(h, g, cfg.posTop)
+        val slack = HIT_SLACK * g.s
+
+        for (i in g.lines.indices) {
+            val t = pos.linesTop + g.lineDy[i]
+            if (x >= g.pad - slack && x <= g.pad + g.lineW[i] + slack &&
+                y >= t - slack && y <= t + g.lineLh[i] + slack
+            ) {
+                when (g.lines[i].kind) {
+                    KIND_ADDR -> return TapTarget.ADDR
+                    KIND_DATE -> return TapTarget.DATETIME
+                }
+            }
+        }
+
+        /* 卡片里那串时间大字。量的是时间本身的宽度，不含标签和右侧的 Logo/单位 */
+        val c = g.card
+        if (c != null && c.timeW > 0f) {
+            val left = c.x + c.ip + c.tagW + c.gapIn
+            if (x >= left - slack && x <= left + c.timeW + slack &&
+                y >= pos.cardTop - slack && y <= pos.cardTop + g.cardH + slack
+            ) return TapTarget.DATETIME
+        }
+        return TapTarget.NONE
+    }
+
+    /**
+     * 按下反馈：在被点的那一块后面垫一层半透明圆角底。
+     *
+     * 没有它，用户不会知道水印上的地点和时间可以点 —— 一个看不见的入口等于没有。
+     * 它只在手指按住时出现，松手就没；出图那条路（[ImageWatermarker]）不传 highlight，
+     * 所以成图上永远不会有这一层。
+     */
+    private fun drawHighlight(
+        canvas: Canvas,
+        g: Geometry,
+        pos: Placement,
+        target: TapTarget,
+        fill: Paint
+    ) {
+        fill.shader = null
+        fill.color = HIGHLIGHT_BG
+        val slack = HIT_SLACK * g.s * 0.5f
+        val r = 12f * g.s
+        for (i in g.lines.indices) {
+            val t = when (g.lines[i].kind) {
+                KIND_ADDR -> TapTarget.ADDR
+                KIND_DATE -> TapTarget.DATETIME
+                else -> TapTarget.NONE
+            }
+            if (t != target) continue
+            val top = pos.linesTop + g.lineDy[i]
+            canvas.drawRoundRect(
+                g.pad - slack, top - slack,
+                g.pad + g.lineW[i] + slack, top + g.lineLh[i] + slack,
+                r, r, fill
+            )
+        }
+        val c = g.card
+        if (target == TapTarget.DATETIME && c != null && c.timeW > 0f) {
+            val left = c.x + c.ip + c.tagW + c.gapIn
+            canvas.drawRoundRect(
+                left - slack, pos.cardTop - slack,
+                left + c.timeW + slack, pos.cardTop + g.cardH + slack,
+                r, r, fill
+            )
+        }
+    }
+
+    /** 画正文块：每行按 [Geometry.lineDy] 落位，基线取行高的 0.78 */
+    private fun drawLines(canvas: Canvas, g: Geometry, top: Float, text: Paint) {
+        val save = canvas.save()
+        text.setShadowLayer(11f * g.s, 0f, 2f * g.s, 0xB3000000.toInt())
+        text.textAlign = Paint.Align.LEFT
+        for (i in g.lines.indices) {
+            val l = g.lines[i]
+            val fs = g.lineFs[i]
+            val yy = top + g.lineDy[i] + g.lineLh[i] * 0.78f
+            var x = g.pad
+            if (l.label != null) {
+                text.typeface = Typeface.DEFAULT_BOLD
+                text.textSize = fs
+                text.color = LABEL_BG
+                canvas.drawText(l.label, x, yy, text)
+                x += text.measureText(l.label) + 12f * g.s
+            }
+            text.typeface = if (l.bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+            text.textSize = fs
+            text.color = Color.WHITE
+            canvas.drawText(l.text, x, yy, text)
+        }
+        text.clearShadowLayer()
+        canvas.restoreToCount(save)
     }
 
     /** 一行文字的实际宽度（含行首标签与标签后的间隔），单位与画布一致 */
@@ -175,12 +438,25 @@ object WatermarkRenderer {
         return x + p.measureText(l.text)
     }
 
-    /** 放得下就用名义字号，放不下逐磅缩，最低到名义字号的 66% */
+    /**
+     * 正文行缩字号时的**硬下限**（相对名义字号）。
+     *
+     * 为什么不是 0.66：0.66 是个"温和下限"，对短一截的溢出够用，但长地名缩到 0.66
+     * 仍然放不进宽度上界，于是它照旧越过时间条、压进品牌区 ——
+     * 用户明确要的「地点不要超过上面的时间条」就等于没兑现。
+     * 现在让"放得下"优先，0.45 是最后一道可读性防线：
+     * 真到了 0.45 还放不下（比如 60 个字的地名），宁可让它溢出，也不能缩成蚂蚁字。
+     */
+    private const val MIN_LINE_SCALE = 0.45f
+
+    /** 放得下就用名义字号，放不下逐磅缩 —— 缩到放得下为止，但绝不低于 [MIN_LINE_SCALE] */
     private fun fitLineSize(p: Paint, l: Line, s: Float, maxW: Float): Float {
         val nominal = l.size * s
+        val floor = nominal * MIN_LINE_SCALE
         var fs = nominal
-        while (fs > nominal * 0.66f && lineWidth(p, l, fs, s) > maxW) fs -= 1f * s
-        return fs
+        while (fs > floor && lineWidth(p, l, fs, s) > maxW) fs -= 1f * s
+        /* 步长是 1*s，最后一步会掉到 floor 下面去一点 —— 夹回来，下限才是下限 */
+        return max(fs, floor)
     }
 
     /**
@@ -407,8 +683,8 @@ object WatermarkRenderer {
     private val boxPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
 
     private class CardLayout(
+        /** 左边距。**不含纵坐标** —— 卡片纵向落在哪由 [place] 算、经参数传给 [drawCard] */
         val x: Float,
-        val y: Float,
         val w: Float,
         val h: Float,
         val ip: Float,
@@ -438,7 +714,6 @@ object WatermarkRenderer {
     private fun measureCard(
         w: Float,
         s: Float,
-        cardY: Float,
         cardH: Float,
         pad: Float,
         logo: Bitmap?,
@@ -504,18 +779,24 @@ object WatermarkRenderer {
 
         val cardW = min(contentWidth(ip, tagW, gapIn, timeW, rightW, gapRight), maxW)
         return CardLayout(
-            x = cardX, y = cardY, w = cardW, h = cardH, ip = ip, radius = radius,
+            x = cardX, w = cardW, h = cardH, ip = ip, radius = radius,
             gapIn = gapIn, title = title, tagW = tagW, tagH = tagH, tagFs = 42f * s,
             rightW = rightW, logoDH = logoDH, unitFs = unitFs, timeFs = timeFs, timeW = timeW
         )
     }
 
+    /**
+     * 画卡片。**尺寸是量好传进来的**（[measure] 已经量过一次）。
+     *
+     * 原来这里自己再 `measureCard` 一遍：两处各量一次，只要有一处的入参不同
+     * （比如宽度上界算得不一样），画出来的卡片和按 [cardMetrics] 断言的就不是同一个东西，
+     * 而两者看上去都"对"。现在只量一次，[CardLayout.x] 是左边距、[cardY] 是这次落位算出的顶部。
+     */
     private fun drawCard(
         canvas: Canvas,
-        w: Float,
+        L: CardLayout,
         s: Float,
         cardY: Float,
-        cardH: Float,
         pad: Float,
         logo: Bitmap?,
         cfg: WatermarkConfig,
@@ -523,18 +804,16 @@ object WatermarkRenderer {
         fill: Paint,
         text: Paint
     ) {
-        val L = measureCard(w, s, cardY, cardH, pad, logo, cfg, now, text)
-
         /* 底：白卡片 */
         fill.shader = null
         fill.color = 0xF7FFFFFF.toInt()
         fill.setShadowLayer(20f * s, 0f, 5f * s, 0x6B000000)
-        canvas.drawRoundRect(L.x, L.y, L.x + L.w, L.y + L.h, L.radius, L.radius, fill)
+        canvas.drawRoundRect(L.x, cardY, L.x + L.w, cardY + L.h, L.radius, L.radius, fill)
         fill.clearShadowLayer()
 
         /* 黄色标签 */
         val tagX = L.x + L.ip
-        val tagY = L.y + (L.h - L.tagH) / 2f
+        val tagY = cardY + (L.h - L.tagH) / 2f
         fill.color = LABEL_BG
         canvas.drawRoundRect(tagX, tagY, tagX + L.tagW, tagY + L.tagH, 11f * s, 11f * s, fill)
 
@@ -547,7 +826,7 @@ object WatermarkRenderer {
         /* 右侧块：贴卡片右内边距，而不是贴屏幕右边 */
         val rightEdge = L.x + L.w - L.ip
         if (logo != null && L.rightW > 0f) {
-            val top2 = L.y + (L.h - L.logoDH) / 2f
+            val top2 = cardY + (L.h - L.logoDH) / 2f
             canvas.drawBitmap(
                 logo, null,
                 RectF(rightEdge - L.rightW, top2, rightEdge, top2 + L.logoDH), fill
@@ -557,7 +836,7 @@ object WatermarkRenderer {
             text.textSize = L.unitFs
             text.color = DARK
             text.textAlign = Paint.Align.RIGHT
-            canvas.drawText(cfg.unit, rightEdge, centerBaseline(text, L.y + L.h / 2f), text)
+            canvas.drawText(cfg.unit, rightEdge, centerBaseline(text, cardY + L.h / 2f), text)
         }
 
         /* 时间大字 */
@@ -568,7 +847,7 @@ object WatermarkRenderer {
             text.textAlign = Paint.Align.LEFT
             canvas.drawText(
                 timeText(cfg, now), tagX + L.tagW + L.gapIn,
-                centerBaseline(text, L.y + L.h / 2f), text
+                centerBaseline(text, cardY + L.h / 2f), text
             )
         }
     }
@@ -597,8 +876,11 @@ object WatermarkRenderer {
         val out = ArrayList<Line>(8)
         /* 关掉卡片时时间退化成一行文字，避免"关了卡片时间就没了" */
         if (cfg.showTime && !cfg.showCard) out.add(Line(timeText(cfg, now), 52f, true))
-        if (cfg.showAddr && cfg.addr.isNotBlank()) out.add(Line(cfg.addr, 42f, true))
-        if (cfg.showDate) out.add(Line(dateText(now), 36f, false))
+        /* 只有这两行能被点开编辑，标记随行走在 [Line.kind] 里 */
+        if (cfg.showAddr && cfg.addr.isNotBlank()) {
+            out.add(Line(cfg.addr, 42f, true, kind = KIND_ADDR))
+        }
+        if (cfg.showDate) out.add(Line(dateText(now), 36f, false, kind = KIND_DATE))
         if (cfg.showNote && cfg.note.isNotBlank()) {
             out.add(Line(cfg.note, 34f, false, label = "备注"))
         }
@@ -674,22 +956,126 @@ object WatermarkRenderer {
     }
 
     /**
+     * 正文每一行的**中心点**，附带它是哪一类行：`[cx, cy, kind]`。
+     *
+     * 给测试用来真点一下。**不让测试自己算**（`pad + 字号 × 字数 / 2` 这类式子）——
+     * 那样量的就不是渲染器认的那块矩形了，命中断言会变成"我算的点在我算的框里"，
+     * 恒真。这里的 `cx/cy` 和 [hitTest] 判的是同一组数。
+     */
+    internal fun lineHitPoints(
+        w: Float,
+        h: Float,
+        cfg: WatermarkConfig,
+        logo: Bitmap?,
+        now: Calendar,
+        loc: LocInfo?
+    ): List<FloatArray> {
+        val p = Paint(Paint.ANTI_ALIAS_FLAG)
+        val g = measure(w, h, cfg, logo, now, loc, p)
+        val pos = place(h, g, cfg.posTop)
+        return g.lines.indices.map { i ->
+            floatArrayOf(
+                g.pad + g.lineW[i] / 2f,
+                pos.linesTop + g.lineDy[i] + g.lineLh[i] / 2f,
+                g.lines[i].kind.toFloat()
+            )
+        }
+    }
+
+    /**
+     * 卡片里那串时间大字的中心点 `[cx, cy]`；没有时间大字时返回空数组。
+     * 卡片的时间是**另一个**日期时间入口（和正文里的日期行等价），也要能点。
+     */
+    internal fun cardTimeHitPoint(
+        w: Float,
+        h: Float,
+        cfg: WatermarkConfig,
+        logo: Bitmap?,
+        now: Calendar,
+        loc: LocInfo?
+    ): FloatArray {
+        val p = Paint(Paint.ANTI_ALIAS_FLAG)
+        val g = measure(w, h, cfg, logo, now, loc, p)
+        val c = g.card ?: return FloatArray(0)
+        if (c.timeW <= 0f) return FloatArray(0)
+        val pos = place(h, g, cfg.posTop)
+        return floatArrayOf(
+            c.x + c.ip + c.tagW + c.gapIn + c.timeW / 2f,
+            pos.cardTop + g.cardH / 2f
+        )
+    }
+
+    /**
      * 正文每行的实际字号（真实像素值，不是基准值）。
      *
      * 用来断言「超长的地点只缩自己那一行、别的行不动」——
      * 渲染图里哪个字大了哪个字小了根本量不准，只有把字号本身拿出来比才靠得住。
+     *
+     * **走 [measure] 而不是自己再算一遍上界**：宽度上界有两层（品牌区左边界 + 卡片宽），
+     * 这里若还用「整幅内容区宽」去量，断言的是一份画不出来的版式 ——
+     * 测试全绿，真机上长地名照样撞进品牌区。
      */
     internal fun lineSizes(
         w: Float,
         h: Float,
         cfg: WatermarkConfig,
         now: Calendar,
+        loc: LocInfo?,
+        logo: Bitmap? = null
+    ): FloatArray {
+        val p = Paint(Paint.ANTI_ALIAS_FLAG)
+        return measure(w, h, cfg, logo, now, loc, p).lineFs
+    }
+
+    /**
+     * 版式几何，供测试断言。一次把三块的边界都拿出来，避免测试各拼一半算式。
+     *
+     * 返回 `[maxTextW, cardW, brandLeft, brandW, linesTop, linesBottom,
+     *        brandTop, brandBottom, cardTop, cardBottom, canvasH, pad]`
+     *
+     * 缺的那块用 `-1` 表示（`brandTop`/`cardTop` 之类），不要拿 0 当"没有"——
+     * 0 是画布顶端，是合法坐标。
+     */
+    internal fun layoutMetrics(
+        w: Float,
+        h: Float,
+        cfg: WatermarkConfig,
+        logo: Bitmap?,
+        now: Calendar,
         loc: LocInfo?
     ): FloatArray {
-        val s = min(w, h) / BASE
         val p = Paint(Paint.ANTI_ALIAS_FLAG)
-        val maxW = w - 40f * s * 2f
-        return buildLines(cfg, now, loc).map { fitLineSize(p, it, s, maxW) }.toFloatArray()
+        val g = measure(w, h, cfg, logo, now, loc, p)
+        val pos = place(h, g, cfg.posTop)
+        val brandLeft = if (g.brand != null) g.brand.right - g.brand.w else -1f
+        val hasLines = g.lines.isNotEmpty()
+        return floatArrayOf(
+            g.maxTextW,
+            g.card?.w ?: -1f,
+            brandLeft,
+            g.brand?.w ?: -1f,
+            if (hasLines) pos.linesTop else -1f,
+            if (hasLines) pos.linesTop + g.textH else -1f,
+            if (g.brand != null) pos.brandTop else -1f,
+            if (g.brand != null) pos.brandTop + g.brandH else -1f,
+            if (g.card != null) pos.cardTop else -1f,
+            if (g.card != null) pos.cardTop + g.cardH else -1f,
+            h,
+            g.pad
+        )
+    }
+
+    /** 正文每行的**实测总宽**（含行首标签与标签后的间隔），供断言「没伸进品牌区那一列」 */
+    internal fun lineWidths(
+        w: Float,
+        h: Float,
+        cfg: WatermarkConfig,
+        logo: Bitmap?,
+        now: Calendar,
+        loc: LocInfo?
+    ): FloatArray {
+        val p = Paint(Paint.ANTI_ALIAS_FLAG)
+        return measure(w, h, cfg, logo, now, loc, p).lineW
     }
 
     /**
@@ -722,7 +1108,7 @@ object WatermarkRenderer {
         val pad = 40f * s
         val cardH = if (cfg.showCard) CARD_H * s else 0f
         val p = Paint(Paint.ANTI_ALIAS_FLAG)
-        val l = measureCard(w, s, 0f, cardH, pad, logo, cfg, now, p)
+        val l = measureCard(w, s, cardH, pad, logo, cfg, now, p)
         return floatArrayOf(l.w, w, pad, l.timeFs)
     }
 

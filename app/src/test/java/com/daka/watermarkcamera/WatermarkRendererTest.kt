@@ -60,24 +60,46 @@ class WatermarkRendererTest {
         return bmp
     }
 
+    /** 画一帧，但不落盘 —— 用来做两张图的像素对比 */
+    private fun frame(
+        cfg: WatermarkConfig,
+        logoData: Bitmap? = null,
+        landscape: Boolean = false,
+        loc: LocInfo? = null,
+        highlight: WatermarkRenderer.TapTarget = WatermarkRenderer.TapTarget.NONE
+    ): Bitmap {
+        val w = if (landscape) 1920 else 1440
+        val h = if (landscape) 1440 else 1920
+        val bmp = scene(w, h)
+        WatermarkRenderer.draw(
+            Canvas(bmp),
+            w.toFloat(),
+            h.toFloat(),
+            cfg,
+            logoData,
+            Calendar.getInstance().apply { set(2026, Calendar.SEPTEMBER, 27, 10, 15, 33) },
+            loc,
+            highlight
+        )
+        return bmp
+    }
+
+    private fun save(name: String, bmp: Bitmap) {
+        val f = File(outDir, name)
+        FileOutputStream(f).use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        println("渲染输出: " + f.absolutePath + " (" + f.length() + " bytes)")
+        assertTrue("PNG 应该非空", f.length() > 1000L)
+    }
+
     private fun render(
         name: String,
         cfg: WatermarkConfig,
         logoData: Bitmap? = null,
         landscape: Boolean = false,
-        loc: LocInfo? = null
+        loc: LocInfo? = null,
+        highlight: WatermarkRenderer.TapTarget = WatermarkRenderer.TapTarget.NONE
     ) {
-        val w = if (landscape) 1920 else 1440
-        val h = if (landscape) 1440 else 1920
-        val bmp = scene(w, h)
-        val c = Canvas(bmp)
-        val now = Calendar.getInstance().apply { set(2026, Calendar.SEPTEMBER, 27, 10, 15, 33) }
-        WatermarkRenderer.draw(c, w.toFloat(), h.toFloat(), cfg, logoData, now, loc)
-
-        val f = File(outDir, name)
-        FileOutputStream(f).use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
-        println("渲染输出: " + f.absolutePath + " (" + f.length() + " bytes)")
-        assertTrue("PNG 应该非空", f.length() > 1000L)
+        save(name, frame(cfg, logoData, landscape, loc, highlight))
     }
 
     private fun base() = WatermarkConfig(
@@ -463,7 +485,7 @@ class WatermarkRendererTest {
     }
 
     @Test
-    fun 超长地点_只缩自己那一行() {
+    fun 超长地点_只缩自己那一行_且缩到真放得下() {
         val long = base().copy(
             addr = "云岭省星海市云山区城东街道办事处风和苑小区三期十二栋二单元",
             note = "正常",
@@ -471,16 +493,298 @@ class WatermarkRendererTest {
         )
         val texts = WatermarkRenderer.lineTexts(long, fixedNow, fixedLoc)
         val sizes = WatermarkRenderer.lineSizes(1440f, 1920f, long, fixedNow, fixedLoc)
+        val ws = WatermarkRenderer.lineWidths(1440f, 1920f, long, null, fixedNow, fixedLoc)
+        val m = WatermarkRenderer.layoutMetrics(1440f, 1920f, long, null, fixedNow, fixedLoc)
         println("行文案 = $texts")
-        println("行字号 = ${sizes.toList()}")
+        println("行字号 = ${sizes.toList()}  行宽 = ${ws.toList()}  宽度上界 = ${m[0]}")
 
         val s = 1440f / 1080f
         assertTrue("地点那行必须缩到小于名义 42f: ${sizes[0]}", sizes[0] < 42f * s - 0.5f)
-        assertTrue("但不能缩过头，下限是名义的 66%: ${sizes[0]}", sizes[0] >= 42f * s * 0.66f - 0.5f)
+        assertTrue("不能缩成蚂蚁字，硬下限是名义的 45%: ${sizes[0]}", sizes[0] >= 42f * s * 0.45f - 0.5f)
+        /*
+         * 这一步才是真正要保证的事 —— 缩字号只是为了达成它。
+         * 只断言"字号变小了"是不够的：变小了却仍越界，图上照样是错的。
+         */
+        assertTrue("缩完还是超了宽度上界: 行宽=${ws[0]} 上界=${m[0]}", ws[0] <= m[0] + 0.5f)
 
         /* 备注那行很短，不该跟着一起缩 —— 否则缩字号就变成了全局缩小 */
         val noteIdx = texts.indexOfFirst { it.startsWith("备注") }
         assertTrue("备注行应保持名义 34f: ${sizes[noteIdx]}", sizes[noteIdx] > 34f * s - 0.5f)
+    }
+
+    /* ================= 新版式：底边对齐 + 点水印改内容 =================
+     *
+     * 对着用户提的三件事逐条断言，一条一个测试，别混在一起：
+     * 1) 左下正文块与右下品牌区**底边对齐**（要的是同一个 y，不是"看着差不多"）
+     * 2) 地点那行**不许比上面的时间条更宽**
+     * 3) 地点 / 日期时间**点得中**（点不中就谈不上"在拍摄界面点开修改"）
+     *
+     * layoutMetrics 的下标表：0 maxTextW / 1 cardW / 2 brandLeft / 3 brandW /
+     * 4 linesTop / 5 linesBottom / 6 brandTop / 7 brandBottom / 8 cardTop / 9 cardBottom /
+     * 10 canvasH / 11 pad。缺的那块是 -1。
+     */
+
+    private val mW = 1440f
+    private val mH = 1920f
+    private val mPad get() = 40f * (mW / 1080f)
+
+    @Test
+    fun 底部对齐_正文块与品牌区共用同一个底边() {
+        val cfg = base()
+        val m = WatermarkRenderer.layoutMetrics(mW, mH, cfg, null, fixedNow, fixedLoc)
+        println(
+            "正文块 [${m[4]}, ${m[5]}]  品牌区 [${m[6]}, ${m[7]}]  " +
+                "卡片 [${m[8]}, ${m[9]}]  底边距=${m[10] - m[5]}"
+        )
+
+        assertEquals("正文块与品牌区必须底边对齐", m[5], m[7], 0.5f)
+        assertTrue("底边应落在画布高 - 边距 上: ${m[5]} vs ${m[10] - m[11]}", Math.abs(m[5] - (m[10] - m[11])) <= 0.5f)
+        /* 卡片仍在其上，不能和正文块叠在一起 */
+        assertTrue("卡片不能在正文块下方: card=${m[9]} linesTop=${m[4]}", m[9] <= m[4] + 0.5f)
+        assertTrue("卡片顶边不能在画面外: ${m[8]}", m[8] >= 0f)
+    }
+
+    @Test
+    fun 底部对齐_长地名与关掉卡片时同样成立() {
+        /* 底边对齐不能只在"正好那一种配置"下成立 —— 行高会随字号缩、卡片有无会换分支 */
+        val cases = listOf(
+            "常规" to base(),
+            "长地名" to base().copy(addr = "云岭省星海市云山区城东街道办事处风和苑小区三期十二栋二单元"),
+            "无卡片" to base().copy(showCard = false),
+            "带坐标" to base().copy(showCoord = true, showAcc = true, showAlt = true),
+            "带备注" to base().copy(showNote = true, note = "设备运行正常，已完成今日巡检并拍照留档")
+        )
+        for ((name, cfg) in cases) {
+            val m = WatermarkRenderer.layoutMetrics(mW, mH, cfg, null, fixedNow, fixedLoc)
+            println("[$name] 正文底=${m[5]} 品牌底=${m[7]} 卡片底=${m[9]}")
+            assertEquals("[$name] 正文块与品牌区底边必须对齐", m[5], m[7], 0.5f)
+            assertTrue("[$name] 底下那一块不能出画: ${m[5]}", m[5] <= mH)
+        }
+    }
+
+    @Test
+    fun 顶部模式_顺序仍是品牌区在最上_没被这次改动打乱() {
+        val m = WatermarkRenderer.layoutMetrics(mW, mH, base().copy(posTop = true), null, fixedNow, fixedLoc)
+        println("顶部模式 品牌=[${m[6]}, ${m[7]}] 卡片=[${m[8]}, ${m[9]}] 正文=[${m[4]}, ${m[5]}]")
+        assertTrue("品牌区应在最上", m[6] < m[8])
+        assertTrue("卡片应在正文块之上", m[8] < m[4])
+        assertTrue("整块不能出画", m[5] <= mH)
+    }
+
+    @Test
+    fun 地点行_不比上面的时间条更宽() {
+        val cfg = base()
+        val m = WatermarkRenderer.layoutMetrics(mW, mH, cfg, null, fixedNow, fixedLoc)
+        val ws = WatermarkRenderer.lineWidths(mW, mH, cfg, null, fixedNow, fixedLoc)
+        val texts = WatermarkRenderer.lineTexts(cfg, fixedNow, fixedLoc)
+        println("时间条宽=${m[1]}  行宽上界=${m[0]}  逐行宽=${ws.toList()}  品牌区左边界=${m[2]}")
+
+        assertTrue("卡片该有宽度", m[1] > 0f)
+        assertTrue("正文行宽上界不许超过时间条: ${m[0]} > ${m[1]}", m[0] <= m[1] + 0.5f)
+
+        /* 真的画出来的每一行，右边界都得在品牌区左边界里面 —— 这是"不撞车"的硬保证 */
+        for (i in ws.indices) {
+            val right = m[11] + ws[i]
+            println("  第 $i 行「${texts[i]}」右边界=$right")
+            assertTrue("第 $i 行伸进品牌区了: 右=$right 品牌区左=${m[2]}", right <= m[2] + 0.5f)
+        }
+    }
+
+    @Test
+    fun 关掉卡片时间_短地名不该被窄卡片挤小() {
+        /*
+         * showCard=true 而 showTime=false 时，卡片只剩「打卡」标签（1440 宽下约 219px）。
+         * 要是照旧拿卡片宽去卡正文，正常的短地名也会被逼到最小字号 —— 这条守住那个退化。
+         */
+        val cfg = base().copy(showTime = false)
+        val m = WatermarkRenderer.layoutMetrics(mW, mH, cfg, null, fixedNow, fixedLoc)
+        val sizes = WatermarkRenderer.lineSizes(mW, mH, cfg, fixedNow, fixedLoc)
+        println("卡片宽=${m[1]} 行宽上界=${m[0]} 行字号=${sizes.toList()}")
+        assertEquals("短地名不该因为卡片没时间而被缩", 42f * (mW / 1080f), sizes[0], 0.5f)
+    }
+
+    /* ---------------- 行用途标记：反推是行不通的，得显式带上 ---------------- */
+
+    @Test
+    fun 行用途标记_地点行是ADDR_日期行是DATE_其余是TEXT() {
+        val cfg = base()
+        val pts = WatermarkRenderer.lineHitPoints(mW, mH, cfg, null, fixedNow, fixedLoc)
+        val texts = WatermarkRenderer.lineTexts(cfg, fixedNow, fixedLoc)
+        assertEquals("命中点应与正文行一一对应", texts.size, pts.size)
+
+        for (i in texts.indices) {
+            val want = when {
+                texts[i] == cfg.addr -> WatermarkRenderer.KIND_ADDR
+                texts[i].startsWith("2026.") -> WatermarkRenderer.KIND_DATE
+                else -> WatermarkRenderer.KIND_TEXT
+            }
+            assertEquals("第 $i 行「${texts[i]}」的用途标记", want, pts[i][2].toInt())
+        }
+    }
+
+    /* ---------------- 点击命中：点水印上改内容的前提 ---------------- */
+
+    @Test
+    fun 点击_地点行给ADDR_日期行给DATETIME_其余行不吃事件() {
+        val cfg = base()
+        val pts = WatermarkRenderer.lineHitPoints(mW, mH, cfg, null, fixedNow, fixedLoc)
+        val texts = WatermarkRenderer.lineTexts(cfg, fixedNow, fixedLoc)
+        println("行命中点 = ${pts.map { it.toList() }}  文案 = $texts")
+
+        for (i in texts.indices) {
+            val got = WatermarkRenderer.hitTest(mW, mH, cfg, null, fixedNow, fixedLoc, pts[i][0], pts[i][1])
+            val want = when {
+                texts[i] == cfg.addr -> WatermarkRenderer.TapTarget.ADDR
+                texts[i].startsWith("2026.") -> WatermarkRenderer.TapTarget.DATETIME
+                else -> WatermarkRenderer.TapTarget.NONE
+            }
+            println("  第 $i 行「${texts[i]}」→ $got（期望 $want）")
+            assertEquals("第 $i 行「${texts[i]}」", want, got)
+        }
+    }
+
+    @Test
+    fun 点击_卡片里的时间大字也算DATETIME() {
+        val cfg = base()
+        val pt = WatermarkRenderer.cardTimeHitPoint(mW, mH, cfg, null, fixedNow, fixedLoc)
+        assertEquals("卡片有时间大字时该给得出中心点", 2, pt.size)
+        val got = WatermarkRenderer.hitTest(mW, mH, cfg, null, fixedNow, fixedLoc, pt[0], pt[1])
+        println("卡片时间命中点 = ${pt.toList()} → $got")
+        assertEquals(WatermarkRenderer.TapTarget.DATETIME, got)
+    }
+
+    @Test
+    fun 点击_品牌区和空白都不吃事件() {
+        val cfg = base()
+        val m = WatermarkRenderer.layoutMetrics(mW, mH, cfg, null, fixedNow, fixedLoc)
+
+        /* 品牌区正中心：宁可不响应，也不要在用户想点品牌名时弹一个跟品牌无关的编辑器 */
+        val bx = m[2] + m[3] / 2f
+        val by = (m[6] + m[7]) / 2f
+        assertEquals(
+            "品牌区不该响应点击",
+            WatermarkRenderer.TapTarget.NONE,
+            WatermarkRenderer.hitTest(mW, mH, cfg, null, fixedNow, fixedLoc, bx, by)
+        )
+
+        /* 画面中上部的大片空白：浮层必须放行，否则预览区就"死"了（点哪都不对焦） */
+        assertEquals(
+            "空白处不该吃事件",
+            WatermarkRenderer.TapTarget.NONE,
+            WatermarkRenderer.hitTest(mW, mH, cfg, null, fixedNow, fixedLoc, mW / 2f, mH * 0.4f)
+        )
+    }
+
+    @Test
+    fun 点击_命中区比看到的略大一圈_手指差十几像素也点得中() {
+        val cfg = base()
+        val pts = WatermarkRenderer.lineHitPoints(mW, mH, cfg, null, fixedNow, fixedLoc)
+        val ws = WatermarkRenderer.lineWidths(mW, mH, cfg, null, fixedNow, fixedLoc)
+        val addrIdx = WatermarkRenderer.lineTexts(cfg, fixedNow, fixedLoc).indexOfFirst { it == cfg.addr }
+        val s = mW / 1080f
+        val pt = pts[addrIdx]
+        val rightEdge = mPad + ws[addrIdx]
+
+        /* 刚出可见文字右边界一点点：在 slack（12 基准 × s ≈ 16px）之内，仍应命中 */
+        val inside = WatermarkRenderer.hitTest(mW, mH, cfg, null, fixedNow, fixedLoc, rightEdge + 6f * s, pt[1])
+        /* 再远出 slack 之外：必须放行，否则浮层会吃掉本该落到预览区的手势 */
+        val outside = WatermarkRenderer.hitTest(mW, mH, cfg, null, fixedNow, fixedLoc, rightEdge + 40f * s, pt[1])
+        println("行右边界=$rightEdge  +6s→$inside  +40s→$outside")
+
+        assertEquals("刚出边界 6 基准像素该还在命中区里", WatermarkRenderer.TapTarget.ADDR, inside)
+        assertEquals("出了 slack 就该放行", WatermarkRenderer.TapTarget.NONE, outside)
+    }
+
+    /* ---------------- 按下反馈：水印上"这里能点"的唯一可见提示 ---------------- */
+
+    /**
+     * 两张图的差异像素数 + 差异包围盒 `[n, x0, y0, x1, y1]`。
+     *
+     * 用像素差异而不是"看渲染图"来判断反馈有没有画出来：底是半透明的，
+     * 压在渐变遮罩上，肉眼在一张 1440x1920 的图里根本分不出"亮了一点"和"没亮"。
+     */
+    private fun diffBox(a: Bitmap, b: Bitmap): IntArray {
+        val w = a.width
+        val h = a.height
+        val pa = IntArray(w * h)
+        val pb = IntArray(w * h)
+        a.getPixels(pa, 0, w, 0, 0, w, h)
+        b.getPixels(pb, 0, w, 0, 0, w, h)
+        var n = 0
+        var x0 = Int.MAX_VALUE
+        var y0 = Int.MAX_VALUE
+        var x1 = -1
+        var y1 = -1
+        for (i in pa.indices) {
+            if (pa[i] == pb[i]) continue
+            val x = i % w
+            val y = i / w
+            n++
+            if (x < x0) x0 = x
+            if (x > x1) x1 = x
+            if (y < y0) y0 = y
+            if (y > y1) y1 = y
+        }
+        return intArrayOf(n, x0, y0, x1, y1)
+    }
+
+    @Test
+    fun 按下反馈_只亮在被点的那一条带子上_而且不碰品牌区() {
+        val cfg = base()
+        val m = WatermarkRenderer.layoutMetrics(mW, mH, cfg, null, fixedNow, fixedLoc)
+        val ws = WatermarkRenderer.lineWidths(mW, mH, cfg, null, fixedNow, fixedLoc)
+        val sizes = WatermarkRenderer.lineSizes(mW, mH, cfg, fixedNow, fixedLoc)
+        val texts = WatermarkRenderer.lineTexts(cfg, fixedNow, fixedLoc)
+        val addrIdx = texts.indexOfFirst { it == cfg.addr }
+
+        val plain = frame(cfg, loc = fixedLoc)
+        val pressed = frame(cfg, loc = fixedLoc, highlight = WatermarkRenderer.TapTarget.ADDR)
+        render("M-pressed-addr.png", cfg, loc = fixedLoc, highlight = WatermarkRenderer.TapTarget.ADDR)
+        render("M-plain.png", cfg, loc = fixedLoc)
+
+        val d = diffBox(pressed, plain)
+        println("地点行按下反馈：差异像素=${d[0]} 包围盒=(${d[1]}, ${d[2]})-(${d[3]}, ${d[4]})")
+
+        assertTrue("按住时该有可见的一层底：差异像素只有 ${d[0]}", d[0] > 2000)
+
+        /* 包围盒必须收在地点行自己那条带子里（含按下时往外放的半圈 slack） */
+        val slack = 12f * (mW / 1080f) * 0.5f + 2f
+        val lh = sizes[addrIdx] * 1.34f
+        assertTrue("左边溢出到 ${d[1]}，行起点是 ${m[11]}", d[1] >= m[11] - slack)
+        assertTrue("右边到 ${d[3]}，行右边界是 ${m[11] + ws[addrIdx]}", d[3] <= m[11] + ws[addrIdx] + slack)
+        assertTrue("上边到 ${d[2]}，行上沿是 ${m[4]}", d[2] >= m[4] - slack)
+        assertTrue("下边到 ${d[4]}，行下沿是 ${m[4] + lh}", d[4] <= m[4] + lh + slack)
+
+        /* 这条最关键：反馈不能糊到品牌区上去（用户这次要修的正是那一片区域） */
+        assertTrue("按下反馈越过了品牌区左边界 ${m[2]}：右到 ${d[3]}", d[3] < m[2])
+    }
+
+    @Test
+    fun 按下反馈_卡片时间大字也有一层底() {
+        val cfg = base()
+        val m = WatermarkRenderer.layoutMetrics(mW, mH, cfg, null, fixedNow, fixedLoc)
+        val plain = frame(cfg, loc = fixedLoc)
+        val pressed = frame(cfg, loc = fixedLoc, highlight = WatermarkRenderer.TapTarget.DATETIME)
+        render("N-pressed-card-time.png", cfg, loc = fixedLoc, highlight = WatermarkRenderer.TapTarget.DATETIME)
+
+        val d = diffBox(pressed, plain)
+        println(
+            "卡片时间按下反馈：差异像素=${d[0]} 包围盒=(${d[1]}, ${d[2]})-(${d[3]}, ${d[4]}) " +
+                "卡片=[${m[8]}, ${m[9]}] 正文块=[${m[4]}, ${m[5]}]"
+        )
+
+        assertTrue("卡片时间的反馈该有可见的一层底：差异像素只有 ${d[0]}", d[0] > 2000)
+
+        /*
+         * 下面这几条断言不能写成"包围盒 == 卡片那一块"：正文里的**日期行**和卡片里的
+         * **时间大字**是同一个值（都归 TapTarget.DATETIME），这一下会同时亮两处 ——
+         * 这是有意的，它们改的本来就是同一个东西，亮哪一处都不算撒谎。
+         * 于是包围盒是两块并起来的外框：上沿顶到卡片上沿，下沿落到日期行下沿。
+         */
+        val slack = 12f * (mW / 1080f) * 0.5f + 3f
+        assertTrue("包围盒上沿 ${d[2]} 不该高过卡片上沿 ${m[8]}", d[2] >= m[8] - slack)
+        assertTrue("包围盒下沿 ${d[4]} 不该超过正文块下沿 ${m[5]}", d[4] <= m[5] + slack)
+        assertTrue("反馈越过了品牌区左边界 ${m[2]}：右到 ${d[3]}", d[3] < m[2])
     }
 
     /* ---------------- 等宽字体（防伪码专用） ---------------- */

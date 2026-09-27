@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  日期时间滚轮：**上面日期（年/月/日）、下面时间（时/分/秒）**，六条滚轮一屏看全。
+
+  为什么不用系统的 DatePickerDialog + TimePickerDialog 两步走：
+  用户要的是"一眼看全、直接拨"。系统那套要过两道窗、点两次确定，
+  而且改「日期对、时间也对」得在两个窗之间来回；滚轮一屏解决。
+
+  高度写死 118dp 而不是 wrap_content：NumberPicker 的 wrap_content 会按字号算，
+  六条滚轮叠起来会把卡片顶出屏幕。118dp 大约能露出上下各一条，看得出"能拨"。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical">
+
+    <TextView
+        style="@style/PopupGroupLabel"
+        android:layout_marginTop="4dp"
+        android:text="@string/label_date_wheel" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <NumberPicker
+            android:id="@+id/npYear"
+            android:layout_width="0dp"
+            android:layout_height="118dp"
+            android:layout_weight="1.25" />
+
+        <NumberPicker
+            android:id="@+id/npMonth"
+            android:layout_width="0dp"
+            android:layout_height="118dp"
+            android:layout_weight="1" />
+
+        <NumberPicker
+            android:id="@+id/npDay"
+            android:layout_width="0dp"
+            android:layout_height="118dp"
+            android:layout_weight="1" />
+    </LinearLayout>
+
+    <TextView
+        style="@style/PopupGroupLabel"
+        android:text="@string/label_time_wheel" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <NumberPicker
+            android:id="@+id/npHour"
+            android:layout_width="0dp"
+            android:layout_height="118dp"
+            android:layout_weight="1" />
+
+        <NumberPicker
+            android:id="@+id/npMinute"
+            android:layout_width="0dp"
+            android:layout_height="118dp"
+            android:layout_weight="1" />
+
+        <NumberPicker
+            android:id="@+id/npSecond"
+            android:layout_width="0dp"
+            android:layout_height="118dp"
+            android:layout_weight="1" />
+    </LinearLayout>
+
+    <!--
+      「回到当前时间」只在手动时间生效时才需要 —— 拨过去的那个时刻会一直锁着，
+      没有出口的话只能进设置页把开关关掉。由代码控制可见性。
+    -->
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnUseNow"
+        style="@style/Widget.Material3.Button.TextButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:minHeight="36dp"
+        android:text="@string/popup_use_now"
+        android:visibility="gone" />
+</LinearLayout>

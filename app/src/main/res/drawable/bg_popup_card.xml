@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  弹出卡片的底。颜色取自 colors.xml 里那组写死的 popup_* —— 不跟 DayNight 走的原因
+  见那里和 themes.xml 的注释：这张卡永远压在深色的相机预览上，
+  "浅底 + 深字"在两种模式下都是对的，跟主题走反而会在深色模式下变成白纸白字。
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <corners android:radius="20dp" />
+    <solid android:color="@color/popup_card" />
+</shape>

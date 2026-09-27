@@ -5,4 +5,16 @@
     <color name="white">#FFFFFFFF</color>
     <color name="hud_text">#E8ECF1</color>
     <color name="ic_launcher_background">#14181D</color>
+
+    <!--
+      弹出卡片（地点编辑 / 日期时间滚轮）的配色。**故意写死、不跟 DayNight 走。**
+
+      主题是 Material3.DayNight，深色模式下 ?android:attr/textColorPrimary 是白字；
+      而这张卡永远压在**深色的相机预览**上，两种模式下都该是"浅底 + 深字"。
+      跟着主题走的话，深色模式会得到"浅底 + 白字"—— 白纸白字，等于没有卡。
+    -->
+    <color name="popup_card">#F7F8FA</color>
+    <color name="popup_text">#14181D</color>
+    <color name="popup_text_dim">#5B6472</color>
+    <color name="popup_scrim">#A6000000</color>
 </resources>

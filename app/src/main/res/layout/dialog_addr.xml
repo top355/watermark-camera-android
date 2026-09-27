@@ -22,7 +22,8 @@
             android:layout_height="wrap_content"
             android:completionThreshold="0"
             android:inputType="text"
-            android:maxLines="1" />
+            android:maxLines="1"
+            android:textColor="@color/popup_text" />
     </com.google.android.material.textfield.TextInputLayout>
 
     <TextView
@@ -31,7 +32,7 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="10dp"
         android:text="@string/addr_edit_helper"
-        android:textColor="?android:attr/textColorSecondary"
+        android:textColor="@color/popup_text_dim"
         android:textSize="12.5sp" />
 
     <com.google.android.material.button.MaterialButton
