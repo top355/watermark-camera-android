@@ -36,7 +36,8 @@ object WatermarkRenderer {
      * 以及整个下方块的基线（`h - pad`）。拆成两个值就会出现"左右收窄了、底边还是老位置"
      * 或者反过来的半吊子状态，改版式时还得记住两个数的关系。
      *
-     * 注意：卡片内部那些 `40f * s` 是**别的东西**（标签左右内边距、时间字号起点），别跟着改。
+     * 注意：卡片内部那几个数（[CARD_IP] / [TAG_PAD_X] / [UNIT_EM] …）是**别的东西**，
+     * 别跟着改 —— 它们已经在下面各自命名了，就是为了避免"看见 40 就一起动"。
      */
     /* internal 而非 private：单测要按同一个数算期望值，写死一份迟早对不上 */
     internal const val PAD = 26f
@@ -52,8 +53,45 @@ object WatermarkRenderer {
     /**
      * 卡片高度（1080 基准）。从 150 压到 116：参考图里这条白条相对画面宽度只有约 10% 高，
      * 150 会显得又高又空，时间字反而显小。
+     *
+     * **116 不动。** 它是照参考图的比例定下来的（116/1080 ≈ 10.7%），高度本身是对的；
+     * 「看着像一条长横幅」的成因在**横向**——宽度 4.9 倍于高度。所以收窄卡片只动下面的
+     * 横向那几个值，纵向一个都不碰，宽高比才会真的改善（4.94 → 4.44）。
      */
     private const val CARD_H = 116f
+
+    /* ---------- 卡片内部尺寸（1080 基准）：收窄卡片全靠这几个数 ---------- */
+
+    /** 卡片左右内边距（20 → 16） */
+    private const val CARD_IP = 16f
+
+    /** 「打卡」标签与时间之间（24 → 20） */
+    private const val CARD_GAP_IN = 20f
+
+    /** 时间与右侧块之间（24 → 20） */
+    private const val CARD_GAP_RIGHT = 20f
+
+    /** 「打卡」标签的字号（42 → 38）与左右内边距（40 → 32） */
+    private const val TAG_EM = 38f
+    private const val TAG_PAD_X = 32f
+
+    /** 卡片右侧那块单位文字的字号（没 Logo 时才用得上） */
+    private const val UNIT_EM = 40f
+
+    /**
+     * 卡片里那串时间大字的基准字号（1080 基准）。
+     *
+     * 78 → 68：**卡片宽度的最大一块就是它**（1440 宽下时间占约 268px、整卡约 764px）。
+     * 卡片是按内容自适应的、没有多余留白，所以「太宽」这个观感只能从字号上收 ——
+     * 内边距 + 标签 + 两处间隙这几项全加起来也就 60px 上下。
+     *
+     * 68 之后时间仍是卡片里最大的东西（相对地点行 42 是 1.6 倍），层级没塌。
+     *
+     * internal 而非 private：单测要拿它当「没缩过」的基准值，
+     * 原来测试里写死的 `104f`（= 78 × s）改主代码时不报错、只会悄悄量错东西。
+     */
+    internal const val TIME_EM = 68f
+
     private val WEEK = arrayOf("日", "一", "二", "三", "四", "五", "六")
 
     /**
@@ -83,17 +121,28 @@ object WatermarkRenderer {
     /**
      * 防伪码那行的基准字号（1080 基准）—— 品牌区三行里最小的那一行。
      *
-     * 跟随 [BrandMark.NAME_EM] 一起放大（17 → 23，同 ×1.35），层级比
-     * 1 : 0.71 : 0.575 保持不变：品牌区是一个整体，
-     * 只放大其中一行会把"名字 > 标语 > 校验码"的层级关系搞乱。
+     * 直接由 [BrandMark.NAME_EM] 推出来，而不是再写一个独立的数：
+     * 层级比 1 : 0.714 : **0.575** 是量出来的（23/40），品牌区是一个整体，
+     * 以后调大小只该动 [BrandMark.NAME_EM] 一处 —— 上一轮就是先定了 40 再手算 23，
+     * 两个数各自"看着对"、却没人保证它们还成比例。
      */
-    private const val BRAND_CODE_EM = 23f
+    internal const val BRAND_CODE_EM = BrandMark.NAME_EM * 0.575f
 
     /** 正文块与品牌区之间至少留的横向间隙（1080 基准） */
     private const val BRAND_GAP_X = 16f
 
-    /** 卡片与下方正文块之间的纵向间隙（1080 基准） */
-    private const val GAP_CARD = 28f
+    /**
+     * 卡片与下方正文块之间的纵向间隙（1080 基准）。
+     *
+     * 28 → 14：卡片和地点/日期本来就是一组的（一个是时间条、一个是它下面的信息），
+     * 28 那点空当加上正文行本身的上行留白，看着像两块各自为政的东西。
+     *
+     * **这个值只管"卡片底边到正文块顶边"**；卡片还额外让开品牌区那一块的高度
+     * （见 [place]），而品牌区比正文块高，所以以前实际看到的间距比 28 还大一截。
+     *
+     * internal 而非 private：单测要按同一个数算"卡片离正文多远"的期望值。
+     */
+    internal const val GAP_CARD = 14f
 
     /** 正文块/卡片与品牌区之间的纵向间隙（1080 基准） */
     private const val GAP_BRAND = 18f
@@ -189,6 +238,13 @@ object WatermarkRenderer {
         val lineLh: FloatArray,
         /** 每行实测总宽（含行首标签）—— 命中区靠它，别拿字号×字数估 */
         val lineW: FloatArray,
+        /**
+         * 每行**最终画在图上**的文案。缩到下限还放不下的行会在这里被截短（末尾带省略号）。
+         *
+         * 单独留一份，而不是往 [Line] 里回写：几何是"量一次、三处共用"的，
+         * 往输入里塞输出，下一次 [measure] 就会拿着上一轮的截短结果再量一遍。
+         */
+        val lineShow: Array<String>,
         /** 每行顶部相对正文块顶部的偏移 */
         val lineDy: FloatArray,
         /**
@@ -267,11 +323,15 @@ object WatermarkRenderer {
         /*
          * 每行各自缩到「放得下」为止。这是「地点那行太长」的根治办法：
          * 以前长地名会直接铺到画面外（右边被切掉），现在只缩这一行的字号，
-         * 下限 0.66 倍 —— 版面骨架、行距关系全都不动，只有超标的那行变小。
+         * 版面骨架、行距关系全都不动，只有超标的那行变小。
+         *
+         * 缩到 [MIN_LINE_SCALE] 还放不下就**改截字**（见 [fitLineText]）——
+         * 一直缩下去的结果是"字都在、但谁都看不见"，不如留几个字看得清清楚楚。
          */
         val fs = FloatArray(lines.size) { fitLineSize(text, lines[it], s, maxTextW) }
+        val show = Array(lines.size) { fitLineText(text, lines[it], fs[it], s, maxTextW) }
         val lh = FloatArray(lines.size) { fs[it] * 1.34f }
-        val lw = FloatArray(lines.size) { lineWidth(text, lines[it], fs[it], s) }
+        val lw = FloatArray(lines.size) { lineWidth(text, lines[it], show[it], fs[it], s) }
         val dy = FloatArray(lines.size)
         for (i in 1 until lines.size) dy[i] = dy[i - 1] + lh[i - 1]
         val textH = lh.fold(0f) { a, b -> a + b }
@@ -279,7 +339,7 @@ object WatermarkRenderer {
         val hasBody = card != null || lines.isNotEmpty()
         return Geometry(
             s = s, pad = pad, cardH = cardH, card = card, brand = brand,
-            lines = lines, lineFs = fs, lineLh = lh, lineW = lw, lineDy = dy,
+            lines = lines, lineFs = fs, lineLh = lh, lineW = lw, lineShow = show, lineDy = dy,
             maxTextW = maxTextW, textH = textH, brandH = brandH,
             gapCard = if (card != null && lines.isNotEmpty()) GAP_CARD * s else 0f,
             gapBrand = if (brand != null && hasBody) GAP_BRAND * s else 0f,
@@ -295,9 +355,9 @@ object WatermarkRenderer {
      * 于是两者**底边严格对齐**（要的就是这个 —— 原来品牌区被摆在正文下方，
      * 防伪码那行比日期低一截，看着像没对齐）。
      *
-     * 卡片则被顶到「正文块顶」和「品牌区顶」里更靠上的那一个之上：
-     * 只留一行正文时（比如只显示日期），品牌区比正文块还高，
-     * 卡片要是照旧贴着正文，就会和品牌名挤在同一段高度里。
+     * 卡片则贴在正文块顶上（间隔 [GAP_CARD]）。**只在横向真的撞上时**才额外让开品牌区：
+     * 卡片从左边起、品牌区贴右边界，正常内容下两者的横向区间根本不重合，
+     * 让开就是白让 —— 品牌区越高卡片被顶得越高，离下面的地点/日期反而越远。
      */
     private fun place(h: Float, g: Geometry, top: Boolean): Placement {
         if (top) {
@@ -321,7 +381,24 @@ object WatermarkRenderer {
         val brandTop = if (g.brand != null) bottom - g.brandH else bottom
         var cardTop = 0f
         if (g.card != null) {
-            val above = if (g.lines.isNotEmpty()) min(linesTop, brandTop) else brandTop
+            /*
+             * 卡片要躲的不是「品牌区在不在」，而是「品牌区**挡不挡路**」。
+             *
+             * 卡片从左边起、品牌区贴着右边界；正常内容下两者的横向区间根本不重合
+             * （1440 宽下卡片右边界约 721、品牌区左边界约 1022，中间隔着 300px）。
+             * 以前一律按 min(linesTop, brandTop) 让开，等于为一块不在同一列的东西白让一次，
+             * 而且**品牌区越高、卡片被顶得越高、离下面的地点/日期就越远** ——
+             * 品牌区刚被调大，这个副作用只会更明显（正是这次要修的那个"太远"）。
+             *
+             * 只有卡片真伸进品牌区那一列（超长单位名把卡片撑宽）时才照旧纵向避让。
+             */
+            val brandInTheWay = g.lines.isNotEmpty() && g.brand != null &&
+                (g.card.x + g.card.w) > g.brand.right - g.brand.w
+            val above = when {
+                brandInTheWay -> min(linesTop, brandTop)
+                g.lines.isNotEmpty() -> linesTop
+                else -> brandTop
+            }
             val gap = if (g.lines.isNotEmpty()) g.gapCard else g.gapBrand
             cardTop = above - gap - g.cardH
         }
@@ -444,14 +521,18 @@ object WatermarkRenderer {
             text.typeface = if (l.bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
             text.textSize = fs
             text.color = Color.WHITE
-            canvas.drawText(l.text, x, yy, text)
+            canvas.drawText(g.lineShow[i], x, yy, text)
         }
         text.clearShadowLayer()
         canvas.restoreToCount(save)
     }
 
-    /** 一行文字的实际宽度（含行首标签与标签后的间隔），单位与画布一致 */
-    private fun lineWidth(p: Paint, l: Line, fs: Float, s: Float): Float {
+    /**
+     * 一行的实际宽度（含行首标签与标签后的间隔），单位与画布一致。
+     *
+     * [value] 单独传而不直接用 [Line.text]：截字要量的正是"截短之后的那个候选文案"。
+     */
+    private fun lineWidth(p: Paint, l: Line, value: String, fs: Float, s: Float): Float {
         var x = 0f
         if (l.label != null) {
             p.typeface = Typeface.DEFAULT_BOLD
@@ -460,28 +541,54 @@ object WatermarkRenderer {
         }
         p.typeface = if (l.bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
         p.textSize = fs
-        return x + p.measureText(l.text)
+        return x + p.measureText(value)
     }
 
     /**
-     * 正文行缩字号时的**硬下限**（相对名义字号）。
+     * 正文行缩字号时的**终点**（相对名义字号）。缩到这里还放不下，就改为截字，
+     * 不再往下缩。
      *
-     * 为什么不是 0.66：0.66 是个"温和下限"，对短一截的溢出够用，但长地名缩到 0.66
-     * 仍然放不进宽度上界，于是它照旧越过时间条、压进品牌区 ——
-     * 用户明确要的「地点不要超过上面的时间条」就等于没兑现。
-     * 现在让"放得下"优先，0.45 是最后一道可读性防线：
-     * 真到了 0.45 还放不下（比如 60 个字的地名），宁可让它溢出，也不能缩成蚂蚁字。
+     * 0.36 → 0.80：0.36 是"缩到放得下为止"那套思路的产物，实际操作下来 29 个字的地名
+     * 会被缩到 22.7px（1440 宽的图上）—— 字倒是全在，可已经不像水印上该有的字号了。
+     * 用户的原话是「要不就不缩那么小了，小区名字截取几个字算了」：
+     * 于是把缩字号收成"小幅微调"（最多小两成），再放不下就归 [fitLineText] 去截字。
+     *
+     * 这两个值是一对：**先缩、缩不动了才截**。顺序反过来的话，
+     * 稍微长一点的地名（13 个字）会先被截掉一个字，而不是整体小 6% —— 那显然更差。
      */
-    private const val MIN_LINE_SCALE = 0.45f
+    internal const val MIN_LINE_SCALE = 0.80f
 
-    /** 放得下就用名义字号，放不下逐磅缩 —— 缩到放得下为止，但绝不低于 [MIN_LINE_SCALE] */
+    /** 截断标记。中文排版用「…」而不是「...」——后者在等宽/比例字体下宽度不一致 */
+    private const val ELLIPSIS = "…"
+
+    /** 放得下就用名义字号，放不下逐磅缩 —— 缩到 [MIN_LINE_SCALE] 为止，再放不下交给 [fitLineText] 截字 */
     private fun fitLineSize(p: Paint, l: Line, s: Float, maxW: Float): Float {
         val nominal = l.size * s
         val floor = nominal * MIN_LINE_SCALE
         var fs = nominal
-        while (fs > floor && lineWidth(p, l, fs, s) > maxW) fs -= 1f * s
+        while (fs > floor && lineWidth(p, l, l.text, fs, s) > maxW) fs -= 1f * s
         /* 步长是 1*s，最后一步会掉到 floor 下面去一点 —— 夹回来，下限才是下限 */
         return max(fs, floor)
+    }
+
+    /**
+     * 在**当前字号**下截到放得下为止：从尾巴一个字一个字往外扔，末尾补「…」。
+     *
+     * 为什么截尾而不是截头：地址是层级信息 —— 「省市区街道」决定这是哪儿，
+     * 「几栋几单元」只是细节，尾巴掉的损失最小。所以留前缀。
+     *
+     * 标签（`备注` / `打卡人`）不参与截断：它是行的用途标记，截掉了整行就看不出是什么。
+     */
+    private fun fitLineText(p: Paint, l: Line, fs: Float, s: Float, maxW: Float): String {
+        if (l.text.isEmpty()) return l.text
+        if (lineWidth(p, l, l.text, fs, s) <= maxW) return l.text
+        for (n in l.text.length - 1 downTo 1) {
+            /* 别从代理对中间劈开（emoji 会画成一个空心方框） */
+            if (l.text[n - 1].isHighSurrogate()) continue
+            val cand = l.text.substring(0, n) + ELLIPSIS
+            if (lineWidth(p, l, cand, fs, s) <= maxW) return cand
+        }
+        return ELLIPSIS
     }
 
     /**
@@ -749,16 +856,16 @@ object WatermarkRenderer {
     ): CardLayout {
         val cardX = pad
         val maxW = w - pad * 2f
-        val ip = 20f * s
+        val ip = CARD_IP * s
         val radius = 18f * s
-        val gapIn = 24f * s
-        val gapRight = 24f * s
+        val gapIn = CARD_GAP_IN * s
+        val gapRight = CARD_GAP_RIGHT * s
 
         /* 1) 黄色标签：高度贴着卡片（上下各留 8s），接近参考图的方角块 */
         val title = cfg.cardTitle.trim().ifBlank { "打卡" }
         text.typeface = Typeface.DEFAULT_BOLD
-        text.textSize = 42f * s
-        val tagW = text.measureText(title) + 40f * s
+        text.textSize = TAG_EM * s
+        val tagW = text.measureText(title) + TAG_PAD_X * s
         val tagH = cardH - 16f * s
 
         /* 2) 右侧块：Logo 图优先，否则单位文字。宽度上限看 maxW，不再依赖整行宽 */
@@ -778,7 +885,7 @@ object WatermarkRenderer {
             rightW = dw
             logoDH = dh
         } else if (cfg.unit.isNotBlank()) {
-            var fs = 40f * s
+            var fs = UNIT_EM * s
             while (true) {
                 text.textSize = fs
                 if (text.measureText(cfg.unit) <= maxRight || fs <= 20f * s) break
@@ -793,7 +900,7 @@ object WatermarkRenderer {
         var timeFs = 0f
         var timeW = 0f
         if (cfg.showTime) {
-            timeFs = 78f * s
+            timeFs = TIME_EM * s
             while (true) {
                 text.textSize = timeFs
                 timeW = text.measureText(t)
@@ -806,7 +913,7 @@ object WatermarkRenderer {
         val cardW = min(contentWidth(ip, tagW, gapIn, timeW, rightW, gapRight), maxW)
         return CardLayout(
             x = cardX, w = cardW, h = cardH, ip = ip, radius = radius,
-            gapIn = gapIn, title = title, tagW = tagW, tagH = tagH, tagFs = 42f * s,
+            gapIn = gapIn, title = title, tagW = tagW, tagH = tagH, tagFs = TAG_EM * s,
             rightW = rightW, logoDH = logoDH, unitFs = unitFs, timeFs = timeFs, timeW = timeW
         )
     }
@@ -1102,6 +1209,27 @@ object WatermarkRenderer {
     ): FloatArray {
         val p = Paint(Paint.ANTI_ALIAS_FLAG)
         return measure(w, h, cfg, logo, now, loc, p).lineW
+    }
+
+    /**
+     * 正文各行**最终画在图上**的文案（长了会被截短、带省略号）。
+     *
+     * 和 [lineTexts] 只差一件事：那个回答「这一行装的是什么」（截断前的原文），
+     * 这个回答「图上看到的是什么」。断言截字必须用这个 —— 拿原文去比永远相等。
+     */
+    internal fun lineDrawTexts(
+        w: Float,
+        h: Float,
+        cfg: WatermarkConfig,
+        logo: Bitmap?,
+        now: Calendar,
+        loc: LocInfo?
+    ): List<String> {
+        val p = Paint(Paint.ANTI_ALIAS_FLAG)
+        val g = measure(w, h, cfg, logo, now, loc, p)
+        return g.lines.indices.map { i ->
+            if (g.lines[i].label == null) g.lineShow[i] else g.lines[i].label + " " + g.lineShow[i]
+        }
     }
 
     /**

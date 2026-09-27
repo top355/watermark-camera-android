@@ -266,7 +266,13 @@ class WatermarkRendererTest {
         val maxW = m[1] - 2f * m[2]
         println("超长内容 条宽=${m[0]}  上限=$maxW  时间字号=${m[3]}")
         assertTrue("卡片宽不能超过 画面宽-2*边距", m[0] <= maxW + 0.5f)
-        assertTrue("应该已经缩过时间字号（基准 ${78f * 1440f / 1080f} → 现在 ${m[3]}）", m[3] < 78f * 1440f / 1080f)
+        /*
+         * 基准值从 TIME_EM 取，不写死 —— 原来这里写的是 `78f * 1440f / 1080f`，
+         * 主代码把基准从 78 调到 68 之后，这条断言会**照旧通过**（因为缩过的字号当然小于旧基准），
+         * 于是"有没有真的缩"就悄悄失去了意义。
+         */
+        val baseline = WatermarkRenderer.TIME_EM * 1440f / 1080f
+        assertTrue("应该已经缩过时间字号（基准 $baseline → 现在 ${m[3]}）", m[3] < baseline - 0.5f)
     }
 
     /* ---------------- 备注 / 打卡人：两行必须一眼能分清 ---------------- */
@@ -484,32 +490,75 @@ class WatermarkRendererTest {
         assertEquals("正常长度的地点不该被动过", 42f * s, sizes[0], 0.5f)
     }
 
+    /**
+     * 长地名：**先小幅缩字号，再截字** —— 二选一的顺序不能反。
+     *
+     * 用户的原话：「要不就不缩那么小了，小区名字截取几个字算了，
+     * 看离横幅最右边可以放几个字。」所以判据从"字号越小越好"换成了：
+     * 字号最多只小两成（[WatermarkRenderer.MIN_LINE_SCALE]），放不下的部分从**尾巴**截掉。
+     *
+     * 断言截字必须用 [WatermarkRenderer.lineDrawTexts]（图上看到的），
+     * 不能用 lineTexts（截断前的原文）—— 拿原文比永远相等，等于没测。
+     */
     @Test
-    fun 超长地点_只缩自己那一行_且缩到真放得下() {
+    fun 超长地点_小幅缩字号_放不下的字从尾巴截掉() {
         val long = base().copy(
             addr = "云岭省星海市云山区城东街道办事处风和苑小区三期十二栋二单元",
             note = "正常",
             showNote = true
         )
-        val texts = WatermarkRenderer.lineTexts(long, fixedNow, fixedLoc)
+        val drawn = WatermarkRenderer.lineDrawTexts(1440f, 1920f, long, null, fixedNow, fixedLoc)
         val sizes = WatermarkRenderer.lineSizes(1440f, 1920f, long, fixedNow, fixedLoc)
         val ws = WatermarkRenderer.lineWidths(1440f, 1920f, long, null, fixedNow, fixedLoc)
         val m = WatermarkRenderer.layoutMetrics(1440f, 1920f, long, null, fixedNow, fixedLoc)
-        println("行文案 = $texts")
+        println("图上行文案 = $drawn")
         println("行字号 = ${sizes.toList()}  行宽 = ${ws.toList()}  宽度上界 = ${m[0]}")
+        println("地点原文 ${long.addr.length} 字 → 图上显示 ${drawn[0].length - 1} 字 + 省略号")
+        render("O-long-addr.png", long, loc = fixedLoc)
 
         val s = 1440f / 1080f
-        assertTrue("地点那行必须缩到小于名义 42f: ${sizes[0]}", sizes[0] < 42f * s - 0.5f)
-        assertTrue("不能缩成蚂蚁字，硬下限是名义的 45%: ${sizes[0]}", sizes[0] >= 42f * s * 0.45f - 0.5f)
-        /*
-         * 这一步才是真正要保证的事 —— 缩字号只是为了达成它。
-         * 只断言"字号变小了"是不够的：变小了却仍越界，图上照样是错的。
-         */
-        assertTrue("缩完还是超了宽度上界: 行宽=${ws[0]} 上界=${m[0]}", ws[0] <= m[0] + 0.5f)
+        assertTrue("地点该被截短（末尾带省略号），实际: ${drawn[0]}", drawn[0].endsWith("…"))
+        assertTrue(
+            "截短后应该还是原文的**前缀**（截的是尾巴，不是中间）: ${drawn[0]}",
+            long.addr.startsWith(drawn[0].removeSuffix("…"))
+        )
+        assertTrue("截掉之后必须真的放得下: 行宽=${ws[0]} 上界=${m[0]}", ws[0] <= m[0] + 0.5f)
 
-        /* 备注那行很短，不该跟着一起缩 —— 否则缩字号就变成了全局缩小 */
-        val noteIdx = texts.indexOfFirst { it.startsWith("备注") }
+        /* 缩字号的幅度被收住了 —— 这是这次改动的重点，不能再一路缩到 0.36 */
+        val floor = 42f * s * WatermarkRenderer.MIN_LINE_SCALE
+        assertTrue("不能缩成蚂蚁字，下限是名义的 ${WatermarkRenderer.MIN_LINE_SCALE}: ${sizes[0]}", sizes[0] >= floor - 0.5f)
+        assertTrue("地点那行该比名义 42f 小一点: ${sizes[0]}", sizes[0] < 42f * s - 0.5f)
+
+        /* 备注那行很短，既不缩也不截 —— 否则"截字/缩字"就变成了全局行为 */
+        val noteIdx = drawn.indexOfFirst { it.startsWith("备注") }
+        assertTrue("备注行不该被截: ${drawn[noteIdx]}", !drawn[noteIdx].endsWith("…"))
         assertTrue("备注行应保持名义 34f: ${sizes[noteIdx]}", sizes[noteIdx] > 34f * s - 0.5f)
+    }
+
+    /**
+     * 顺序钉死：**先缩、缩不动了才截**。
+     *
+     * 反过来的话，只超出一点点的地方（比如 14 个字）会先被砍掉一个字，
+     * 而不是整体小一成 —— 而"字一个不少、只是略小"显然是更好的结果。
+     * 这条和上面那条合起来才是完整规则：小幅缩 → 缩到下限 → 才截尾。
+     */
+    @Test
+    fun 只超一点的地点_缩字号就够_不到截字那一步() {
+        val cfg = base().copy(addr = "云岭省星海市云山区风和苑三期")   // 14 字，超出上界约一成
+        val drawn = WatermarkRenderer.lineDrawTexts(1440f, 1920f, cfg, null, fixedNow, fixedLoc)
+        val sizes = WatermarkRenderer.lineSizes(1440f, 1920f, cfg, fixedNow, fixedLoc)
+        val ws = WatermarkRenderer.lineWidths(1440f, 1920f, cfg, null, fixedNow, fixedLoc)
+        val m = WatermarkRenderer.layoutMetrics(1440f, 1920f, cfg, null, fixedNow, fixedLoc)
+        println("14 字地点 → 图上「${drawn[0]}」字号=${sizes[0]} 行宽=${ws[0]} 上界=${m[0]}")
+
+        val s = 1440f / 1080f
+        assertTrue("这一步还不到截字的地步，应该一个字不少: ${drawn[0]}", drawn[0] == cfg.addr)
+        assertTrue("但字号该小幅收一点: ${sizes[0]}", sizes[0] < 42f * s - 0.5f)
+        assertTrue(
+            "也不该直接掉到下限: ${sizes[0]}",
+            sizes[0] > 42f * s * WatermarkRenderer.MIN_LINE_SCALE + 0.5f
+        )
+        assertTrue("必须真的放得下: 行宽=${ws[0]} 上界=${m[0]}", ws[0] <= m[0] + 0.5f)
     }
 
     /* ================= 新版式：底边对齐 + 点水印改内容 =================
@@ -542,6 +591,54 @@ class WatermarkRendererTest {
         /* 卡片仍在其上，不能和正文块叠在一起 */
         assertTrue("卡片不能在正文块下方: card=${m[9]} linesTop=${m[4]}", m[9] <= m[4] + 0.5f)
         assertTrue("卡片顶边不能在画面外: ${m[8]}", m[8] >= 0f)
+    }
+
+    /**
+     * 卡片要**紧贴**下面那行文字，不能因为品牌区高就被顶上去。
+     *
+     * 这两句其实是一件事：以前卡片一律按 `min(正文顶, 品牌顶)` 让位，
+     * 而品牌区（三行 + 一个灰块）比正文块高，于是卡片实际离正文比 GAP_CARD 远得多
+     * （1440 宽下 59px，而不是 GAP_CARD×s 的 37px）。现在只在**横向真的撞上**
+     * 品牌区那一列时才让位 —— 卡片从左边起、品牌区贴右边界，正常内容下两者根本不重合。
+     *
+     * 品牌区刚被调大，这一条更要钉住：不然每次把品牌名字号往上提，
+     * 卡片都会被顺带顶高一截，而"更远"这个副作用跟品牌字号八竿子打不着。
+     */
+    @Test
+    fun 卡片_紧贴正文块顶边_不被品牌区顶高() {
+        val cfg = base()
+        val m = WatermarkRenderer.layoutMetrics(mW, mH, cfg, null, fixedNow, fixedLoc)
+        val gap = m[4] - m[9]
+        val expect = WatermarkRenderer.GAP_CARD * (mW / 1080f)
+        val cardRight = mPad + m[1]
+        println(
+            "卡片底=${m[9]} 正文顶=${m[4]} → 间距=$gap（应为 $expect）  " +
+                "卡片右边界=$cardRight 品牌区左边界=${m[2]} 品牌区顶=${m[6]}"
+        )
+
+        assertEquals("卡片底边到正文块顶边应正好是 GAP_CARD", expect, gap, 0.5f)
+        /* 材质上不能撞：卡片右边界还在品牌区左边界左边，所以本来就不该让位 */
+        assertTrue("这一例里两者横向不该撞上: $cardRight vs ${m[2]}", cardRight < m[2])
+        assertTrue(
+            "卡片底边该落到品牌区顶边**之下**（说明没为它让位）: ${m[9]} vs ${m[6]}",
+            m[9] > m[6]
+        )
+    }
+
+    /** 反过来：卡片真伸进品牌区那一列时，还得照旧让位，否则白条会压在品牌名上 */
+    @Test
+    fun 卡片_伸进品牌区那一列时仍然让位() {
+        val cfg = base().copy(
+            showSec = true,
+            cardTitle = "打卡打卡打卡打卡打卡打卡",
+            unit = "星海市示例物业管理有限公司"
+        )
+        val m = WatermarkRenderer.layoutMetrics(mW, mH, cfg, null, fixedNow, fixedLoc)
+        val cardRight = mPad + m[1]
+        println("长内容 卡片右边界=$cardRight 品牌区左边界=${m[2]} 卡片底=${m[9]} 品牌区顶=${m[6]}")
+
+        assertTrue("这一例就是冲着撞上品牌区去的: $cardRight vs ${m[2]}", cardRight > m[2])
+        assertTrue("撞上时卡片底边必须让到品牌区顶之上: ${m[9]} <= ${m[6]}", m[9] <= m[6] + 0.5f)
     }
 
     @Test
