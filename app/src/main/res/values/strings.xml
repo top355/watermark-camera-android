@@ -105,5 +105,9 @@
     <string name="flash_off">闪光灯：关</string>
     <string name="flash_unsupported">这个摄像头没有闪光灯</string>
 
+    <!-- 底部倍率档位。%1$s 形如 "2x" / "0.6x"，所以描述里不再重复"倍"字 -->
+    <string name="zoom_chip_desc">放大 %1$s</string>
+    <string name="zoom_chip_desc_1x">原始倍率，不放大</string>
+
     <string name="btn_done">完成</string>
 </resources>

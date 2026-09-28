@@ -115,63 +115,112 @@
             android:src="@drawable/ic_settings" />
     </LinearLayout>
 
+    <!--
+      底部整体竖着叠：上面是倍率档位行，下面是操作栏。
+
+      为什么不把倍率行单独用 layout_gravity + marginBottom 摆到操作栏上面：
+      操作栏的高度不是固定的（快门 76dp + 内边距 + 系统的导航栏 inset），
+      写死的 marginBottom 换台机器就会和快门压在一起、或者飘在半空。
+      叠在一个竖LinearLayout 里，位置永远由操作栏自己的实测高度决定，零魔法数字。
+
+      id 必须叫 bottomBar 且留在原地 —— applyInsets() 和 BottomBarLayoutTest
+      都按这个 id 找它。
+    -->
     <LinearLayout
-        android:id="@+id/bottomBar"
+        android:id="@+id/bottomStack"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:paddingStart="26dp"
-        android:paddingEnd="26dp"
-        android:paddingBottom="14dp">
-
-        <ImageButton
-            android:id="@+id/thumb"
-            android:layout_width="52dp"
-            android:layout_height="52dp"
-            android:background="@drawable/bg_thumb"
-            android:clipToOutline="true"
-            android:contentDescription="@string/last_shot"
-            android:scaleType="centerCrop"
-            android:src="@drawable/ic_placeholder" />
+        android:orientation="vertical">
 
         <!--
-          给相册里的图加水印。放在缩略图右边而不是顶栏：顶栏已经被
-          地点重量过（见 topBar 注释），再加东西会在窄屏上把设置图标顶出去。
+          倍率档位。整行由 ZoomBar 在代码里建（档位是设备能力的函数，
+          见 Zoom.presets），这里只留容器。
+
+          套 HorizontalScrollView 是窄屏兜底：五档在 320dp 上本来排得下，
+          但万一某台机器给出一组更宽的标签（0.6x / 10x 混排），
+          宁可让它能横向拖，也不要被裁掉一半。
         -->
-        <ImageButton
-            android:id="@+id/btnGallery"
-            android:layout_width="52dp"
-            android:layout_height="52dp"
-            android:layout_marginStart="10dp"
-            android:background="@drawable/bg_round"
-            android:contentDescription="@string/pick_photo"
-            android:src="@drawable/ic_gallery" />
+        <HorizontalScrollView
+            android:id="@+id/zoomScroll"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:fillViewport="true"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:paddingBottom="10dp"
+            android:scrollbars="none">
 
-        <Space
-            android:layout_width="0dp"
-            android:layout_height="1dp"
-            android:layout_weight="1" />
+            <!--
+              gravity=center 把档位摆在这一行的中间。
+              注意是**容器自己的 gravity**，不是 layout_gravity ——
+              外面 fillViewport 之后子项被拉到满宽，layout_gravity 就没有作用了。
+            -->
+            <LinearLayout
+                android:id="@+id/zoomBar"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:orientation="horizontal" />
+        </HorizontalScrollView>
 
-        <ImageButton
-            android:id="@+id/shutter"
-            android:layout_width="76dp"
-            android:layout_height="76dp"
-            android:background="@drawable/bg_shutter"
-            android:contentDescription="@string/shoot" />
+        <LinearLayout
+            android:id="@+id/bottomBar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="26dp"
+            android:paddingEnd="26dp"
+            android:paddingBottom="14dp">
 
-        <Space
-            android:layout_width="0dp"
-            android:layout_height="1dp"
-            android:layout_weight="1" />
+            <ImageButton
+                android:id="@+id/thumb"
+                android:layout_width="52dp"
+                android:layout_height="52dp"
+                android:background="@drawable/bg_thumb"
+                android:clipToOutline="true"
+                android:contentDescription="@string/last_shot"
+                android:scaleType="centerCrop"
+                android:src="@drawable/ic_placeholder" />
 
-        <ImageButton
-            android:id="@+id/btnFlip"
-            android:layout_width="52dp"
-            android:layout_height="52dp"
-            android:background="@drawable/bg_round"
-            android:contentDescription="@string/flip_camera"
-            android:src="@drawable/ic_flip" />
+            <!--
+              给相册里的图加水印。放在缩略图右边而不是顶栏：顶栏已经被
+              地点重量过（见 topBar 注释），再加东西会在窄屏上把设置图标顶出去。
+            -->
+            <ImageButton
+                android:id="@+id/btnGallery"
+                android:layout_width="52dp"
+                android:layout_height="52dp"
+                android:layout_marginStart="10dp"
+                android:background="@drawable/bg_round"
+                android:contentDescription="@string/pick_photo"
+                android:src="@drawable/ic_gallery" />
+
+            <Space
+                android:layout_width="0dp"
+                android:layout_height="1dp"
+                android:layout_weight="1" />
+
+            <ImageButton
+                android:id="@+id/shutter"
+                android:layout_width="76dp"
+                android:layout_height="76dp"
+                android:background="@drawable/bg_shutter"
+                android:contentDescription="@string/shoot" />
+
+            <Space
+                android:layout_width="0dp"
+                android:layout_height="1dp"
+                android:layout_weight="1" />
+
+            <ImageButton
+                android:id="@+id/btnFlip"
+                android:layout_width="52dp"
+                android:layout_height="52dp"
+                android:background="@drawable/bg_round"
+                android:contentDescription="@string/flip_camera"
+                android:src="@drawable/ic_flip" />
+        </LinearLayout>
     </LinearLayout>
 </FrameLayout>

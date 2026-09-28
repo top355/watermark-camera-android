@@ -21,6 +21,7 @@ import android.os.Bundle
 import android.os.Environment
 import android.provider.MediaStore
 import android.view.Gravity
+import android.view.ScaleGestureDetector
 import android.view.Surface
 import android.view.View
 import android.view.ViewGroup
@@ -37,17 +38,20 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.AspectRatio
 import androidx.camera.core.Camera
+import androidx.camera.core.CameraInfo
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
+import androidx.camera.core.ZoomState
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updatePadding
 import androidx.core.widget.doAfterTextChanged
+import androidx.lifecycle.Observer
 import androidx.lifecycle.lifecycleScope
 import com.daka.watermarkcamera.databinding.ActivityMainBinding
 import com.google.android.material.button.MaterialButton
@@ -98,6 +102,83 @@ class MainActivity : AppCompatActivity() {
 
     /** 传感器画面在「竖屏」下的宽高比；横屏取其倒数。由 resolveAspect() 填充 */
     private var sensorAspect = 0f
+
+    /* ------------------------- 放大倍数 ------------------------- */
+
+    private lateinit var zoomCtl: ZoomBar
+
+    /**
+     * 当前倍数。**只在内存里，不落盘。**
+     *
+     * 闪光灯档位是落盘的（那是个"设置"：我就要补光），倍数不是 —— 它是**取景**。
+     * 落到盘上会变成：昨天为了拍远处那块铭牌拉到 8x，今天打开相机对准人，
+     * 画面糊成一团而屏幕上没有任何东西提示"为什么"。
+     * 主流相机（Google / 三星）开相机也一律回 1x。
+     *
+     * 但**内存里必须留住**：切前后摄、开关闪光灯都会重建 session，新 session 倍数归 1，
+     * 不记住的话"换个摄像头刚才的 3x 就没了"。
+     */
+    private var zoomRatio = 1f
+
+    /** 相机报的可用区间，用来夹 [zoomRatio]。默认 1..1 = 不能变焦 */
+    private var zoomMin = 1f
+    private var zoomMax = 1f
+
+    /**
+     * 下一次 zoomState 回调时要不要把 [zoomRatio] 重新推给相机。
+     *
+     * 刚 bind 完必为 true：新 session 的倍数一定是 1，不推下去用户选的档就白选了。
+     * 推完立刻置 false —— 否则用户往后每捏一下都会被这里拽回旧值。
+     */
+    private var zoomNeedsApply = false
+
+    /**
+     * 相机自己也会改倍数（捏合是我们发的，但有些 ROM 在暗光下会自己往里裁），
+     * 所以**高亮一律以这个回调为准**，而不是以我们发出去的值。
+     *
+     * 见 [ZoomBar.markSelected]：相机报的值不在任何一档上时，一个都不高亮。
+     */
+    private val zoomObserver = Observer<ZoomState> { zs ->
+        zoomMin = if (zs.minZoomRatio > 0f && !zs.minZoomRatio.isNaN()) zs.minZoomRatio else 1f
+        zoomMax = if (zs.maxZoomRatio >= zoomMin && !zs.maxZoomRatio.isNaN()) {
+            zs.maxZoomRatio
+        } else {
+            zoomMin
+        }
+        zoomCtl.bind(zoomMin, zoomMax)
+
+        if (zoomNeedsApply) {
+            zoomNeedsApply = false
+            setZoom(zoomRatio)
+        } else {
+            /* 相机是权威：它夹过、或用户捏过，都按它报的来 */
+            zoomRatio = zs.zoomRatio.coerceIn(zoomMin, zoomMax)
+            zoomCtl.markSelected(zs.zoomRatio)
+        }
+    }
+
+    /**
+     * 预览区上的捏合缩放。
+     *
+     * 逐次乘 `scaleFactor` 而不是「起手倍数 × 累计系数」：`scaleFactor` 是**相对上一次
+     * 回调**的增量比，用起手倍数去乘会得到指数级放大（捏一下冲到上限）。
+     */
+    private val scaleDetector by lazy {
+        ScaleGestureDetector(this, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            override fun onScale(d: ScaleGestureDetector): Boolean {
+                setZoom(zoomRatio * d.scaleFactor)
+                return true
+            }
+
+            override fun onScaleEnd(d: ScaleGestureDetector) {
+                /*
+                 * 松手时吸一下：小幅偏差归到最近的档（捏歪到 1.05x 就该回 1x），
+                 * 差得多的原样留着 —— 见 Zoom.snap
+                 */
+                setZoom(Zoom.snap(zoomCtl.presets, zoomRatio))
+            }
+        })
+    }
 
     private var shotCount = 0
     private var lastUri: Uri? = null
@@ -210,11 +291,37 @@ class MainActivity : AppCompatActivity() {
                 binding.topBar.updatePadding(top = sb.top + v, left = h, bottom = 0)
                 binding.bottomBar.updatePadding(top = 0, bottom = sb.bottom + h, right = h)
             }
+            /*
+             * 倍数行也要躲系统栏：横屏时导航栏可能竖在右边，不躲的话
+             * 最右那一档会被压在导航栏底下点不到。16dp 是 XML 里定的视觉边距，
+             * 这里要**加上**系统栏而不是替换掉它（updatePadding 只改传进去的那几个边）。
+             */
+            val zp = (16 * d).toInt()
+            binding.zoomScroll.updatePadding(left = sb.left + zp, right = sb.right + zp)
             insets
         }
     }
 
     private fun wireUi() {
+        /* 档位是相机能力的函数，所以整行交给 ZoomBar 在代码里建，布局里只留容器 */
+        zoomCtl = ZoomBar(this, binding.zoomBar, binding.zoomScroll)
+        zoomCtl.onPick = { setZoom(it) }
+
+        /*
+         * 预览区自己吃掉所有触摸 —— 捏合需要**完整的手势流**：
+         * DOWN 若不消费，后面的 MOVE / POINTER_DOWN 根本不会派发到这个 View 上，
+         * 表现就是"捏合时灵时不灵"。
+         *
+         * 代价是预览空白处的点击不再往下传。那里的点击本来就什么也不做
+         * （水印浮层没命中的点击落到这里，原来也是"没反应"），所以不吃亏。
+         * 将来要做点屏对焦，请**加进这一个 listener**，不要再 setOnTouchListener 一次：
+         * 后者会把这里整个顶掉，而且不会报任何错。
+         */
+        binding.previewView.setOnTouchListener { _, e ->
+            scaleDetector.onTouchEvent(e)
+            true
+        }
+
         binding.shutter.setOnClickListener { takePhoto() }
         binding.btnFlip.setOnClickListener { flipCamera() }
         binding.btnSettings.setOnClickListener {
@@ -318,13 +425,15 @@ class MainActivity : AppCompatActivity() {
 
                 provider.unbindAll()
                 /* 记住 Camera：只有 CameraInfo 上有 hasFlashUnit()，ImageCapture 上没有 */
-                camera = provider.bindToLifecycle(
+                val cam = provider.bindToLifecycle(
                     this,
                     CameraSelector.Builder().requireLensFacing(lensFacing).build(),
                     preview,
                     capture
                 )
+                camera = cam
                 applyFlashState()
+                observeZoom(cam.cameraInfo)
                 resolveAspect()
             } catch (e: Exception) {
                 toast("相机启动失败：" + (e.message ?: "未知错误"))
@@ -425,6 +534,58 @@ class MainActivity : AppCompatActivity() {
             }
         )
         binding.btnFlash.contentDescription = getString(R.string.flash_toggle)
+    }
+
+    /* ------------------------- 放大倍数 ------------------------- */
+
+    /**
+     * 订阅这台相机的倍数能力。
+     *
+     * 必须先 removeObservers 再 observe：`CameraInfo.zoomState` 在多次 bind 之间
+     * **可能是同一个 LiveData 实例**，重复 observe 会让回调走两遍、档位条白建两次。
+     * 换摄像头时旧实例被丢掉，挂在上面的观察者随之失效，不用管。
+     */
+    private fun observeZoom(info: CameraInfo) {
+        zoomNeedsApply = true
+        info.zoomState.removeObservers(this)
+        info.zoomState.observe(this, zoomObserver)
+    }
+
+    /**
+     * 改倍数。点档位、捏合、重建 session 后重推 —— 全部走这里，
+     * 于是「夹进合法区间」和「同步高亮」只有一份实现。
+     *
+     * 前摄经常只支持 1x：后摄拉到 8x 再切前摄，不夹一下会直接抛
+     * IllegalArgumentException。
+     */
+    private fun setZoom(ratio: Float) {
+        val cam = camera ?: return
+        if (ratio.isNaN()) return
+        val r = ratio.coerceIn(zoomMin, zoomMax)
+        zoomRatio = r
+
+        /*
+         * 先按用户的意思亮起来，不等相机回调 —— 从点击到回亮隔着一帧以上，
+         * 手感上就是"点了没反应"。相机若否掉它，下面的回调会把高亮拨回真实值。
+         */
+        zoomCtl.markSelected(r)
+
+        try {
+            val f = cam.cameraControl.setZoomRatio(r)
+            f.addListener({
+                try {
+                    f.get()
+                } catch (t: Throwable) {
+                    /*
+                     * 个别 ROM 在切摄像头那一瞬会拒绝改倍数。不值得为此崩掉，
+                     * 但界面不能继续显示一个并不存在的倍数。
+                     */
+                    zoomCtl.markSelected(cam.cameraInfo.zoomState.value?.zoomRatio ?: r)
+                }
+            }, ContextCompat.getMainExecutor(this))
+        } catch (t: Throwable) {
+            /* 同步抛出（区间不对、相机已解绑）也一样：这是取景辅助功能，不该能崩掉相机 */
+        }
     }
 
     /**
