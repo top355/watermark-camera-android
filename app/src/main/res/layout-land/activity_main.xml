@@ -2,8 +2,20 @@
 <!--
   横屏布局。
   横屏时画面是 4:3 居中、左右留黑边，所以把操作按钮收成右侧一条竖栏，
-  不压在画面上；地点/张数留在左上角。
-  id 必须与竖屏版完全一致 —— 代码只认 id，不认排布。
+  收在右黑边上（屏够宽的机器上全在黑边里，16:9 的会压到画面右缘一点，
+  见文件末尾 thumbRow 那段注释）；地点/张数留在左上角。
+
+  两条硬约束，加控件前先看清楚：
+
+  1. id 必须与竖屏版**逐一对齐** —— 代码只认 id、不认排布。
+     唯一允许缺的是 topSpacer：它对代码是可选参数（applyTopBarWidths 收 View?），
+     这份布局的顶栏本来就不吃满宽度、不需要那根撑杆。
+     其余任何一个 id 缺失，ViewBinding 都会把字段生成成**可空**、主界面于是写安全调用 ——
+     点下去毫无反应也不报错。「横着启动 App 点不到从相册加水印」就是这么来的，
+     现在由 LayoutParityTest 逐条盯着两份布局的 id 集合。
+
+  2. 高度是硬约束：360dp 高的横屏上，这条右栏（倍率行 38 + 操作栏 296）已经占掉 334dp。
+     想加东西基本只能靠"并排"而不是"再加一行"。
 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
@@ -185,16 +197,56 @@
                 android:background="@drawable/bg_shutter"
                 android:contentDescription="@string/shoot" />
 
-            <ImageButton
-                android:id="@+id/thumb"
-                android:layout_width="46dp"
-                android:layout_height="46dp"
+            <!--
+              最后一行：上一张 + 相册加水印，**并排两颗**。
+
+              为什么必须并排、不能各占一行：横屏的高度预算是**硬约束**。
+              这条右栏（倍率行 38dp + 操作栏 296dp）在 360dp 高的横屏上已经占掉 334dp，
+              只剩 26dp —— 再塞一行 46dp 的按钮，最上面的闪光灯会被顶到屏幕外
+              （BottomBarLayoutTest 那条横屏用例就是量这个的）。
+
+              为什么不干脆再收窄一点挤进去：要腾出 30dp 得把快门、翻转、闪光灯
+              和四个间距统统改小，档位和点击区都得缩水，为一个入口动整条栏不值。
+
+              代价是这一列变宽：46+10+46 加 18dp 内边距 = 120dp（原先 82dp，
+              由 64dp 的快门决定）。16:9 横屏的左右黑边各 80dp，所以右边缘会压到
+              4:3 画面约 40dp；19.5:9 / 20:9 的机器黑边有 150dp 以上，仍在黑边里。
+              这和倍率行本来就越出黑边是同一个量级，属于这套横屏版式既有的取舍。
+
+              id 必须与竖屏版一致 —— 代码只认 id、不认排布。竖屏那份里
+              thumb 和 btnGallery 也是并排的（52dp + 10dp 间距），这里保持一致。
+              漏一个 id 的后果很隐蔽：ViewBinding 发现某 id 只在部分变体里存在时
+              会把字段生成成**可空**，主界面于是写安全调用，点下去毫无反应也不报错 ——
+              「横着启动 App 点不到从相册加水印」就是这么来的，现在有
+              LayoutParityTest 盯着两份布局的 id 集合。
+            -->
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
                 android:layout_marginTop="14dp"
-                android:background="@drawable/bg_thumb"
-                android:clipToOutline="true"
-                android:contentDescription="@string/last_shot"
-                android:scaleType="centerCrop"
-                android:src="@drawable/ic_placeholder" />
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <ImageButton
+                    android:id="@+id/thumb"
+                    android:layout_width="46dp"
+                    android:layout_height="46dp"
+                    android:background="@drawable/bg_thumb"
+                    android:clipToOutline="true"
+                    android:contentDescription="@string/last_shot"
+                    android:scaleType="centerCrop"
+                    android:src="@drawable/ic_placeholder" />
+
+                <!-- 相册里的图也能加水印 —— 补拍、事后补录的场景全靠它。id 与竖屏版同一个 -->
+                <ImageButton
+                    android:id="@+id/btnGallery"
+                    android:layout_width="46dp"
+                    android:layout_height="46dp"
+                    android:layout_marginStart="10dp"
+                    android:background="@drawable/bg_round"
+                    android:contentDescription="@string/pick_photo"
+                    android:src="@drawable/ic_gallery" />
+            </LinearLayout>
         </LinearLayout>
     </LinearLayout>
 </FrameLayout>

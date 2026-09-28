@@ -384,14 +384,17 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.btnFlash.setOnClickListener { toggleFlash() }
-        /* 相册里的图也能加水印 —— 补拍、事后补录的场景全靠它 */
         /*
-         * 这里有个 `?.`：ViewBinding 把 btnGallery 生成了**可空字段**
-         * （生成代码里它没有 missingId 检查，别的按钮都有），而布局本身是对的。
-         * 不猜原因、也不让它静默失效 —— 用 `BottomBarLayoutTest.相册入口真的存在`
-         * 盯着它：真拿不到的话测试先红，而不是等用户点了没反应才发现。
+         * 相册里的图也能加水印 —— 补拍、事后补录的场景全靠它。
+         *
+         * 这里**故意不写安全调用**。两份布局（`layout/` 与 `layout-land/`）现在都有
+         * 这个 id，ViewBinding 生成的就是非空字段；哪天有人只往一份里加了控件、
+         * 漏了另一份，这个字段会**变回可空**，这一行当场编译不过。
+         * 这比"点下去没反应也不报错"早得多 —— 那个隐患正是它上一版的形态
+         * （`layout-land` 漏了 btnGallery，横着启动 App 就点不到相册）。
+         * 另一道护栏是 [LayoutParityTest]，逐条比两份布局的 id 集合。
          */
-        binding.btnGallery?.setOnClickListener { pickPhotoNow() }
+        binding.btnGallery.setOnClickListener { pickPhotoNow() }
 
         /* 分屏 / 折叠 / 旋转导致预览区尺寸变化时，重算水印浮层的贴合矩形 */
         binding.previewBox.addOnLayoutChangeListener { _, l, t, r, b, ol, ot, orr, ob ->

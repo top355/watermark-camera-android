@@ -219,3 +219,80 @@ jobs:
           fi
           echo
           echo "✅ 发布完成：$(gh release view "$TAG" --json url -q .url)"
+
+      # ── main 每次推送都刷新一个「最新构建」预发布版 ──────────────────────
+      #
+      # **为什么要有这一步**：只按标签发版时，"最新一次构建"其实是拿不到的 ——
+      # Actions 里的 Artifacts 要登录才能下、90 天后还会过期，而 Release 上的资产
+      # 只在打标签那一刻更新过。于是出现"main 上早就修好了，Release 里还是旧包"，
+      # 每次想看最新包都得先手动打个标签。2026-09-28 连着被这件事绊了两次。
+      #
+      # 现在两条轨道并行，互不干扰：
+      #   · 推 `v*` 标签  → 版本 Release（v1.0、v1.1…），资产固定、适合长期引用
+      #   · 推 main       → 覆盖「最新构建」这个预发布版，永远是最新一份
+      #
+      # `--prerelease` 是有意的：GitHub 的「Latest」标识仍然归正式版本，
+      # 不会被每天冒出来的构建抢走；而预发布版同样**不登录就能下载**。
+      #
+      # 为什么把 release 删掉重建（而不是 `gh release edit` / `upload --clobber`）：
+      # **tag 必须跟着动**。`gh release edit` 改不了 tag 指向，只覆盖资产的话，
+      # `latest` 会永远停在第一次那个提交上 —— 别人从 Release 页点「Source code」
+      # 下到的是旧代码，比资产不同步更难发现。删（`--cleanup-tag` 连 tag 一起删）
+      # 再建，tag 就必落在本次构建的提交上。代价是下载计数会清零、release 短暂消失，
+      # 对一个"滚动构建"来说可以接受。
+      #
+      # 注意 `--target "$GITHUB_SHA"`：target_commitish 允许直接给 commit SHA。
+      # 不加的话 gh 会拿默认分支去造 tag —— 在 push 与建 release 之间又插进来一个
+      # 提交时（并发推送、或本步排在上传后面）就会指错。
+      #
+      # 另外 `latest` **不匹配 `v*`**，所以这一步不会把自己的工作流再触发一遍。
+      - name: 刷新「最新构建」预发布版（main 分支）
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG=latest
+          D=app/build/outputs/apk/debug/app-debug.apk
+          R=app/build/outputs/apk/release/app-release.apk
+          for f in "$D" "$R"; do
+            [ -f "$f" ] || { echo "::error::缺产物 $f"; exit 1; }
+          done
+
+          A=/tmp/watermark-camera-latest-debug.apk
+          B=/tmp/watermark-camera-latest-release.apk
+          cp "$D" "$A"
+          cp "$R" "$B"
+
+          SHORT="$(git rev-parse --short HEAD)"
+          # 提交信息里的 `|` 会破坏下面的 markdown 链接行，先剔掉
+          MSG="$(git log -1 --pretty=%s | tr -d '|')"
+          {
+            echo "**main 分支最新一次的自动构建**，提交 \`${SHORT}\` —"
+            printf '[%s](%s/%s/commit/%s)\n\n' "$MSG" "$GITHUB_SERVER_URL" \
+                   "$GITHUB_REPOSITORY" "$GITHUB_SHA"
+            echo "要稳定版本（资产不再变动）请到 [Releases]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases)"
+            echo "里找带版本号的那个（如 \`v1.0\`）。"
+            echo
+            echo "| 包 | 大小 | MD5 |"
+            echo "|---|---|---|"
+            printf '| `%s` | %s B | `%s` |\n' "watermark-camera-latest-debug.apk" \
+                   "$(stat -c %s "$A")" "$(md5sum "$A" | cut -d' ' -f1)"
+            printf '| `%s` | %s B | `%s` |\n' "watermark-camera-latest-release.apk" \
+                   "$(stat -c %s "$B")" "$(md5sum "$B" | cut -d' ' -f1)"
+            echo
+            printf '构建时间（UTC）：%s\n' "$(date -u '+%Y-%m-%d %H:%M:%S')"
+          } > /tmp/latest-notes.md
+          echo "──── 即将发布的说明 ────"
+          cat /tmp/latest-notes.md
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::notice::「最新构建」已存在 → 连同 tag 一起重建，让它指向本次提交"
+            gh release delete "$TAG" --yes --cleanup-tag
+          fi
+          gh release create "$TAG" --target "$GITHUB_SHA" --prerelease \
+            --title "最新构建（main 自动构建）" --notes-file /tmp/latest-notes.md \
+            "$A#最新构建 · debug（带调试信息，体积大）" \
+            "$B#最新构建 · release（推荐装这个）"
+          echo
+          echo "✅ 已刷新：$(gh release view "$TAG" --json url -q .url)"

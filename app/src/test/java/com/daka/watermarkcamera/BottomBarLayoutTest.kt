@@ -46,9 +46,14 @@ class BottomBarLayoutTest {
     /**
      * 相册入口必须真的拿得到。
      *
-     * ViewBinding 把它生成了**可空字段**（别的按钮都不是这样），主界面因此用的是
-     * 安全调用 —— 万一真的为 null，点下去毫无反应且不报错，属于最难查的一类。
-     * 这里绕过 binding、直接从布局里把 view 捞出来盯着：真丢了，测试先红。
+     * 这条本来是在盯一个更凶的问题：`btnGallery` 曾经被 ViewBinding 生成成**可空字段**
+     * （因为 `layout-land/` 那份布局里没有它），主界面于是只能写安全调用 ——
+     * 横着启动 App 时点下去既没反应也不报错。
+     *
+     * 现在两份布局都有这个 id，字段已是非空、主界面用的是硬引用，编译期就顶住了。
+     * 这条测试留着，是因为它是**绕过 binding 直接从布局里捞 view** 的那一路：
+     * 万一有人把 view 藏进 `ViewStub`、或者改了 id 名字，binding 那边还能编译过，
+     * 这里会先红。
      */
     @Test
     fun 相册入口真的存在() {
@@ -214,15 +219,26 @@ class BottomBarLayoutTest {
 
         val shutter = root.findViewById<View>(R.id.shutter)
         val flash = root.findViewById<View>(R.id.btnFlash)
+        val thumb = root.findViewById<View>(R.id.thumb)
+        val gallery = root.findViewById<View>(R.id.btnGallery)
         println(
             "横屏  屏=${w}x$h " +
                 "倍率行=${absRect(wrap).joinToString(",")} " +
                 "底栏=${absRect(bar).joinToString(",")} " +
-                "快门=${absRect(shutter).joinToString(",")}"
+                "快门=${absRect(shutter).joinToString(",")} " +
+                "缩略图=${absRect(thumb).joinToString(",")} " +
+                "相册=${absRect(gallery).joinToString(",")}"
         )
 
         assertEquals("横屏也该有五个档位", 5, row.childCount)
-        listOf("倍率行" to wrap, "操作栏" to bar, "快门" to shutter, "闪光灯" to flash)
+        listOf(
+            "倍率行" to wrap,
+            "操作栏" to bar,
+            "快门" to shutter,
+            "闪光灯" to flash,
+            "缩略图" to thumb,
+            "相册" to gallery
+        )
             .forEach { (name, v) ->
                 val r = absRect(v)
                 assertTrue("横屏：$name 左边越出屏幕 (${r[0]})", r[0] >= 0)
@@ -234,5 +250,14 @@ class BottomBarLayoutTest {
         assertTrue("横屏：倍率行压在操作栏上", wrap.bottom <= bar.top)
         /* 操作栏必须靠右站（横屏的 4:3 画面居中、左右留黑边，按钮收在右黑边上） */
         assertTrue("横屏：操作栏没贴右边 (${absRect(bar)[2]} vs $w)", absRect(bar)[2] > w * 0.8f)
+        /*
+         * 缩略图和相册是**并排的同一行**（横屏高度不够再开一行，见 layout-land 里的注释），
+         * 所以横向必须真的排得下 —— 排不下时 LinearLayout 不会压缩前面的子项，
+         * 只会把后面那颗摆到栏外，表现为"相册按钮不见了"，和当初"⚙ 显示不全"同一个机理。
+         */
+        assertTrue(
+            "横屏：相册按钮压住了缩略图 (${absRect(gallery)[0]} < ${absRect(thumb)[2]})",
+            absRect(gallery)[0] >= absRect(thumb)[2]
+        )
     }
 }
