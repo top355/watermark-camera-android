@@ -44,9 +44,11 @@
 # 在项目根目录建 local.properties，指向你的 SDK
 echo "sdk.dir=/path/to/android-sdk" > local.properties
 
-./gradlew assembleDebug        # 产物: app/build/outputs/apk/debug/app-debug.apk
-./gradlew assembleRelease -x lintVitalRelease   # 产物: app/build/outputs/apk/release/app-release.apk
+gradle assembleDebug --offline                          # 产物: app/build/outputs/apk/debug/app-debug.apk
+gradle assembleRelease -x lintVitalRelease --offline    # 产物: app/build/outputs/apk/release/app-release.apk
 ```
+
+（本机一直带 `--offline`：依赖都在缓存里，省掉联网重新解析那一步。去掉也能跑。）
 
 **两个包都要出。** 改完代码只跑 `assembleDebug` 会漏掉 release —— 交付目录里那个 release
 会悄悄停在上一个版本，而这次的差异只在图上两个字上，装上基本看不出问题，
@@ -59,19 +61,20 @@ APK 压缩策略，不是代码差异。
 **`-x lintVitalRelease` 不要省。** `assembleRelease` 会拉上 `lintVitalRelease` 做全量
 Lint 分析，本机实测这一项跑了 **29 分钟还没结束**（debug 构建根本不跑它，所以对比特别刺眼）。
 而这个工程里 Lint 配的是 `abortOnError = false` —— 它拦不住任何问题、也不改变 APK 字节，
-纯粹让人干等。跳过它 release 构建回到分钟级。真想看 Lint 就单独跑 `gradlew lint`。
+纯粹让人干等。跳过它 release 构建回到分钟级。真想看 Lint 就单独跑 `gradle lint`。
 （历史版本的 release 也不含 Lint 结果，跳过它得到的包与之前一致。）
 CI（`.github/workflows/build.yml`）里那条构建命令也带同一个 `-x` —— 两边行为一致，
 免得"本机能出、CI 卡住"。
 
-本仓库没有带 gradle wrapper 的 jar 包，所以本地构建要么用系统装的 `gradle`（8.14.3），
-要么先执行一次 `gradle wrapper` 生成 wrapper。
+**本仓库没有 Gradle wrapper**（无 `gradlew`、无 `gradle/wrapper/`），所以本地用的是
+系统装的 `gradle` 8.14.3（本机路径 `/f/gradle/gradle-8.14.3/bin/gradle`）；
+CI 里由 `gradle/actions/setup-gradle@v4` 装上同一个版本（`gradle-version: '8.14.3'`）。
+**两边版本一致，所以本机怎么编，CI 就怎么编。**
 
 **JDK 必须钉在 17，而且别指望临时 `export JAVA_HOME`。**
 
-`gradle.properties` 里已经写死了一行 `org.gradle.java.home=D:/jdk-17`。
-这不是洁癖 —— 本机的 `JAVA_HOME` 指向的是**另一个 JDK**（实测 jdk-22），
-用它跑 gradle 会在**配置阶段**就炸掉，任何 task 都执行不到：
+本机的 `JAVA_HOME` 指向的是**另一个 JDK**（实测 jdk-22），用它跑 gradle 会在**配置阶段**
+就炸掉，任何 task 都执行不到：
 
 ```
 Could not configure services using BuildScopeServices.configure().
@@ -86,6 +89,33 @@ Caused by: java.lang.ClassCastException: class jdk.internal.loader.ClassLoaders$
 
 判据：**7 秒内失败 + 一条 `BUILD FAILED` + 一个 task 都没执行** —— 真编译错误不会这么快。
 （`--no-daemon` 救不了：它只是 fork 一个单次 JVM，仍然读 `JAVA_HOME`。）
+
+**这条设置放在用户级，不放在仓库里**：
+
+```
+C:\Users\<你>\.gradle\gradle.properties
+    org.gradle.java.home=D:/jdk-17
+```
+
+为什么要挪出去 —— 它是个**本机专用的绝对路径**，而 `gradle.properties` 是会被提交的。
+2026-09-28 就栽在这上面：那一行提交上去之后，GitHub Actions 在
+`gradle/actions/setup-gradle` 那一步直接挂了，报
+
+```
+Error: The process '/usr/bin/gradle' failed with exit code 1
+```
+
+**连编译都没开始**。真因是 Linux runner 上没有 `D:/jdk-17`，gradle 读到这个属性非法后
+**连 `gradle --version` 都会立刻退出 1**（本机已复现：`Value 'D:/jdk-17' given for
+org.gradle.java.home Gradle property is invalid`）。而 setup-gradle 做版本探测时正好会调一次
+gradle，报错于是被包成了上面那句看不出所以然的话 —— 当时我还一度去查"GitHub 是不是被墙了"，
+方向完全错了。
+
+所以现在：`gradle.properties` 里**故意不写** `org.gradle.java.home`，并在文件里留了注释警告；
+CI 也不需要它（`actions/setup-java` 已经把 `JAVA_HOME` 设成 temurin 17）。
+workflow 里还加了一道**守卫**：谁再把 Windows 绝对路径写回 `gradle.properties`，
+CI 会在第一步就指名道姓地报出来，而不是甩那句 `/usr/bin/gradle` exit 1。
+另加一步「编译环境自检」打印 `java -version` / `gradle --version`，让环境问题一眼可见。
 
 ---
 
@@ -815,7 +845,7 @@ MOVE / POINTER_DOWN 根本不会派发到那个 View 上，表现是"捏合时�
 编译通过 ≠ 画得对，也 ≠ 逻辑对。所以有 **134 个测试**，跑在两种 runner 上：
 
 ```bash
-./gradlew testDebugUnitTest
+gradle testDebugUnitTest --offline
 # 产物: app/build/test-render/*.png
 ```
 
