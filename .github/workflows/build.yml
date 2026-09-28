@@ -15,8 +15,26 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # ── 底下的 action 版本为什么是这个数？───────────────────────────────
+      # Node 20 已弃用。用 node20 的 action 会被强制跑在 Node 24 上，并得到一条
+      # 警告注解（Annotations 区那两条）。**主版本升到哪一档要逐个查**，别按同一个
+      # 数字套：每个仓库把 node24 放在哪一版是各自决定的。下表是 2026-09-28
+      # 逐个读各 tag 的 `action.yml` 里 `runs.using` 得到的：
+      #
+      #   actions/checkout         node20 止于 v4   → 首个 node24 = v5
+      #   actions/setup-java       node20 止于 v4    → 首个 node24 = v5
+      #   actions/upload-artifact  node20 止于 **v5** → 首个 node24 = v6   ← 顺手写 v5 治不了
+      #   gradle/actions           node20 止于 v4    → 首个 node24 = v5
+      #
+      # node24 的 action 要求 Actions Runner ≥ 2.327.1（GitHub 托管 runner 总是满足；
+      # 换成自建 runner 时才需要注意）。
+      #
+      # **为什么不干脆一律升到 latest**：`gradle/actions@v6` 把缓存拆成了专有组件
+      # `gradle-actions-caching`，升 v6 = 接受 Gradle 商业条款 —— 而 setup-gradle 的
+      # 缓存是**默认开启**的。我们只需要清掉弃用警告，不必顺带接受一份许可。
+      # （同理 setup-java v6 刚发布一个月且改了 Zulu 发现方式与 `jdkFile` 命名，无必要。）
       - name: 拉取代码
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       # 守卫：拦住"把本机专用路径提交进仓库"这一类问题。
       #
@@ -41,8 +59,10 @@ jobs:
           echo "gradle.properties 干净 ✅（生效内容如下，已略去注释）"
           grep -vE '^[[:space:]]*(#|$)' gradle.properties || true
 
+      # v5 相对 v4 只换了 node24 运行时，inputs 是超集（`distribution` / `java-version`
+      # 都在，另多了 jdk-file / set-default / verify-signature），不是破坏性升级。
       - name: 安装 JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
@@ -61,14 +81,14 @@ jobs:
           "$SDKMGR" "platform-tools" "platforms;android-36" "build-tools;36.0.0"
 
       - name: 配置 Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v5
         with:
           gradle-version: '8.14.3'
 
       # 自检：把"到底用了哪个 Java / 哪个 Gradle"直接写进日志。
       # 这两条也正是最容易出问题的地方（见上面那道守卫），单独成一个**命名步骤**，
       # 万一还炸，步骤名会直接说"环境自检"，而不是含糊的
-      # "Run gradle/actions/setup-gradle@v4"。
+      # "Run gradle/actions/setup-gradle@v5"。
       - name: 编译环境自检
         run: |
           set -e
@@ -88,15 +108,19 @@ jobs:
       - name: 列出产物
         run: find app/build/outputs/apk -name '*.apk' -print
 
+      # 注意这里是 **v6** 不是 v5：upload-artifact 的 node20 一直延续到 v5，
+      # 写成 v5 会继续收到"Node.js 20 is deprecated"那条注解（v5 只是预先支持 node24，
+      # 默认仍跑 node20）。v6 的 inputs 与 v4 完全一致（name / path / if-no-files-found），
+      # 属于纯粹的运行时升级。
       - name: 上传 debug APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: watermark-camera-debug
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
 
       - name: 上传 release APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: watermark-camera-release
           path: app/build/outputs/apk/release/*.apk

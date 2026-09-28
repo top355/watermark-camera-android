@@ -39,6 +39,45 @@
 > 两个包都用 debug 签名，都能直接安装。要上应用商店的话，把 `app/build.gradle.kts`
 > 里 `signingConfig = signingConfigs.getByName("debug")` 换成你自己的 keystore。
 
+### 1.1 CI 里 action 的版本号怎么定（Node 20 弃用警告）
+
+GitHub 会对仍运行在 Node 20 上的 action 给出警告注解（Annotations 区那两条），并**强行**
+把它们塞到 Node 24 上跑。清掉之后要防止它回来，**靠读版本号是读不出来的** ——
+`v4 → v5` 这种「顺手升一档」不一定管用：每个仓库把 node24 放在哪一版是**各自决定的**。
+
+下表是 2026-09-28 逐个读各 tag 的 `action.yml` 里 `runs.using` 得到的，不是凭印象：
+
+| action | node20 止于 | 首个 node24 |
+|---|---|---|
+| `actions/checkout` | v4 | **v5** |
+| `actions/setup-java` | v4 | **v5** |
+| `actions/upload-artifact` | **v5**（不是 v4） | **v6** |
+| `gradle/actions`（setup-gradle） | v4 | **v5** |
+
+三件事值得记住：
+
+1. **`upload-artifact` 的 node20 一直延续到 v5。** v5 只是"预先支持" node24，默认仍跑
+   node20，所以写 `@v5` **照样报警告**，必须 v6。好消息是 v6 的 inputs 与 v4 完全一致
+   （`name` / `path` / `if-no-files-found`），属于纯运行时升级。
+2. **不要无脑升到 latest。** `gradle/actions@v6` 把缓存拆成了专有组件
+   `gradle-actions-caching`，升上去等于接受 Gradle 商业条款 —— 而 `setup-gradle` 的缓存
+   **默认就是开着的**。我们只需要清掉弃用警告，不必顺带接受一份许可。
+   （`setup-java@v6` 同理无必要：它改了 Zulu 的发现方式与 `jdkFile` 的命名。）
+3. node24 的 action 要求 Actions Runner ≥ **2.327.1**。GitHub 托管 runner 总是满足这一点；
+   只有将来换成自建 runner 时才需要注意。
+
+核对方式 —— **用真实的 `action.yml` 说话**：
+
+```bash
+python verify/ci_action_versions.py .
+# 读每个 uses 指向的 ref 的 action.yml，取 runs.using；
+# 出现 node20 就退出码 1，并把「该升到哪一版」直接打出来。
+```
+
+**故意没把这个脚本挂进 CI**：它要联网拉 `raw.githubusercontent.com`，一抖动就会让 CI
+因为无关原因变红 —— 这跟 `lintVitalRelease` 是同一类问题（不动产物、只添噪音）。
+放在 `verify/` 里手动跑，或者在升级 action 之前跑一遍。
+
 ## 二、在本机编译（可选）
 
 需要 JDK 17+ 和 Android SDK（platform 36 / build-tools 36.0.0）：
