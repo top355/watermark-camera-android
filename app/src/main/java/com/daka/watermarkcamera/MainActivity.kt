@@ -260,6 +260,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         applyInsets()
+        applyTopBarWidth()
         wireUi()
 
         /* 必须在 startCamera() 之前读出来：ImageCapture 构建时要按它写进 session 配置 */
@@ -315,6 +316,25 @@ class MainActivity : AppCompatActivity() {
             binding.zoomScroll.updatePadding(left = sb.left + zp, right = sb.right + zp)
             insets
         }
+    }
+
+    /**
+     * 顶栏地点胶囊的宽度策略（见 [applyTopBarWidths]）。
+     *
+     * 必须在**两个时机**各算一次：onCreate 和旋转回调。
+     * 因为声明了 configChanges，旋转不会重建 Activity、也不会重新充气布局，
+     * 屏幕上还是竖屏那套 View —— 不按新屏宽重算的话，横屏下
+     * 「吃满剩余宽度」的胶囊会跟着屏幕一起长到快 700dp、横贯整屏。
+     */
+    private fun applyTopBarWidth() {
+        val dm = resources.displayMetrics
+        applyTopBarWidths(
+            binding.gpsPill,
+            binding.topSpacer,
+            binding.gpsTxt,
+            dm.widthPixels,
+            dm.density
+        )
     }
 
     private fun wireUi() {
@@ -390,6 +410,7 @@ class MainActivity : AppCompatActivity() {
         imageCapture?.targetRotation = r
 
         applyInsets()
+        applyTopBarWidth()
         binding.previewBox.post {
             resolveAspect()
             layoutOverlay()
@@ -692,17 +713,14 @@ class MainActivity : AppCompatActivity() {
         if (cfg.manualTime) {
             if (cfg.manualTimeMs != hintedManualMs) {
                 hintedManualMs = cfg.manualTimeMs
-                Snackbar.make(
-                    binding.root,
+                snack(
                     getString(
                         R.string.manual_time_locked,
                         SimpleDateFormat("MM-dd HH:mm", Locale.CHINA)
                             .format(Date(cfg.now().timeInMillis))
                     ),
-                    Snackbar.LENGTH_LONG
-                ).setAction(R.string.btn_pick_time) {
-                    startActivity(Intent(this, SettingsActivity::class.java))
-                }.show()
+                    getString(R.string.btn_pick_time)
+                ) { startActivity(Intent(this, SettingsActivity::class.java)) }
             }
         } else {
             hintedManualMs = 0L
@@ -1283,13 +1301,9 @@ class MainActivity : AppCompatActivity() {
                 shotCount++
                 Prefs.setShotCount(this@MainActivity, shotCount)
                 binding.cntPill.text = "已拍 $shotCount 张"
-                Snackbar.make(
-                    binding.root,
-                    savedMsg(saved, getString(R.string.pick_photo_saved)),
-                    Snackbar.LENGTH_LONG
-                )
-                    .setAction("分享") { share(saved.uri) }
-                    .show()
+                snack(savedMsg(saved, getString(R.string.pick_photo_saved)), "分享") {
+                    share(saved.uri)
+                }
             }
         }
     }
@@ -1348,9 +1362,7 @@ class MainActivity : AppCompatActivity() {
                             shotCount++
                             Prefs.setShotCount(this@MainActivity, shotCount)
                             binding.cntPill.text = "已拍 $shotCount 张"
-                            Snackbar.make(binding.root, savedMsg(shot, "已保存到相册"), Snackbar.LENGTH_LONG)
-                                .setAction("分享") { share(shot.uri) }
-                                .show()
+                            snack(savedMsg(shot, "已保存到相册"), "分享") { share(shot.uri) }
                         }
                     }
                 }
@@ -1601,6 +1613,23 @@ class MainActivity : AppCompatActivity() {
         toastRef?.cancel()
         toastRef = android.widget.Toast.makeText(this, msg, android.widget.Toast.LENGTH_SHORT)
         toastRef?.show()
+    }
+
+    /**
+     * 弹出提示条。**所有提示都走这里**，不要再直接 `Snackbar.make`。
+     *
+     * 走一个入口是为了宽度策略只有一份：Snackbar 默认铺满父容器，
+     * 而父容器是满屏的 —— 竖屏 360dp 还能看，横屏 800dp 以上就是一条
+     * 又长又空的条，十几个字挤在正中间。这里按屏宽封顶并居中（见 [resizeSnack]）。
+     *
+     * [action] / [onAction] 要么都传、要么都不传 —— 只给一个按钮是点不动的。
+     */
+    private fun snack(msg: CharSequence, action: String? = null, onAction: (() -> Unit)? = null) {
+        val sb = Snackbar.make(binding.root, msg, Snackbar.LENGTH_LONG)
+        if (action != null && onAction != null) sb.setAction(action) { onAction() }
+        val dm = resources.displayMetrics
+        resizeSnack(sb, dm.widthPixels, dm.density)
+        sb.show()
     }
 
     private companion object {

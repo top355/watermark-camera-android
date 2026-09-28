@@ -50,11 +50,24 @@
         android:paddingBottom="4dp">
 
         <!--
-          点一下就能在拍照界面直接改地点，不用进设置页。
-          宽度必须是 0dp + weight=1：原来写 wrap_content 时，地点一长（maxWidth 190dp）
-          整行的需求宽度就超过屏宽，LinearLayout 会把右边的按钮顶到屏幕外 ——
-          表现就是「设置图标显示不全」。改成吃剩余宽度后，
-          右侧三个控件的位置永远由它们自己决定，地点再长也只是自己省略号。
+          顶栏左上的地点胶囊。点一下就能在拍照界面直接改地点，不用进设置页。
+
+          宽度**不在这里定死**，而是按当前屏宽在代码里切两支
+          （见 HudSize.applyTopBarWidths）：
+
+            屏不够宽（手机竖屏）→ 0dp + weight=1 吃满剩余宽度，也就是下面写的这一支。
+            这是窄屏上唯一的活路：原来写 wrap_content 时，地点一长整行的需求宽度
+            就超过屏宽，而 LinearLayout 不压缩前面的子项、只把后面的摆到屏幕外 ——
+            表现就是「设置图标显示不全」。
+
+            屏够宽（横屏 / 平板竖屏）→ 代码改成 wrap_content，最多 HudSize.gpsMaxDp
+            （约 258dp 一条），剩下的宽度交给下面那个 topSpacer 吃掉，
+            右边三个控件仍然贴右边缘。
+
+          为什么必须放在代码里算：Activity 声明了 configChanges（见 manifest），
+          **旋转不重建、布局也不重新充气** —— 横屏时屏幕上还是竖屏这套 View，
+          只是被量成了横屏的宽度。写死在 XML 里的话，横屏拿到的是"竖屏值被拉宽"的产物，
+          胶囊会一路长到 680dp、横贯整个屏幕。
         -->
         <LinearLayout
             android:id="@+id/gpsPill"
@@ -83,18 +96,42 @@
                 android:contentDescription="@null"
                 android:src="@drawable/ic_location" />
 
+            <!--
+              宽度是 wrap_content，**不要给它 weight=1**：
+              那样文字会撑满整个胶囊，屏幕一宽胶囊就跟着变长（横屏就是这么长的）。
+              文字上限由代码按当前屏宽给（HudSize.GPS_TEXT_MAX_DP），
+              理由同上 —— 旋转不重新充气，写死在 XML 里对横屏无效。
+
+              不写 weight 也照样会缩：胶囊自己是被父容器约束的，
+              长地址在 AT_MOST 下会自己省略号，窄屏上和原来的表现逐像素一致。
+            -->
             <TextView
                 android:id="@+id/gpsTxt"
-                android:layout_width="0dp"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="5dp"
-                android:layout_weight="1"
                 android:ellipsize="end"
                 android:singleLine="true"
                 android:text="@string/addr_placeholder"
                 android:textColor="@color/hud_text"
                 android:textSize="12.5sp" />
         </LinearLayout>
+
+        <!--
+          右对齐撑杆。
+
+          屏够宽时由代码把 weight 设成 1：吃掉胶囊没收的那段宽度，
+          让右边三个控件继续贴着右边缘（不设它的话，胶囊一收窄，
+          设置图标就会跟着往中间跑）。屏不够宽时归零。
+
+          横屏那份布局（layout-land）的顶栏本来就是 wrap_content、控件也是靠左站的，
+          不需要这个撑杆，所以那个文件里没有这个 id —— ViewBinding 生成的是可空字段，
+          HudSize.applyTopBarWidths 的 gap 参数因此写成可空。
+        -->
+        <Space
+            android:id="@+id/topSpacer"
+            android:layout_width="0dp"
+            android:layout_height="1dp" />
 
         <TextView
             android:id="@+id/cntPill"

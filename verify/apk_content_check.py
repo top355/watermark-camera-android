@@ -47,6 +47,10 @@ MUST_HAVE = [
     "swSaveOriginal",
     "同时保存原图",
     "原图_",
+    # 顶栏那条右对齐撑杆。横屏收窄地点胶囊靠的就是它
+    # （屏够宽时由 HudSize.applyTopBarWidths 给它 weight=1），
+    # 少了它胶囊倒是会收窄，但右侧的闪光/设置会被一起拽到屏幕中间。
+    "topSpacer",
 ]
 MUST_NOT_HAVE = ["防伪码 ", "旺德府", "WDF", "长沙市", "长沙县", "和苑天辰", "湖南省"]
 
