@@ -131,6 +131,14 @@ curl -s https://api.github.com/repos/<owner>/<repo>/releases \
   | python -c "import json,sys; [print(r['tag_name'], r['draft'], [a['name'] for a in r['assets']]) for r in json.load(sys.stdin)]"
 ```
 
+> **查"这次运行"时有个坑**：workflow runs 列表接口里，**标签触发的运行不在 `ref` 字段上**
+> （那里返回 `null`），要看 `head_branch` —— 它的值就是标签名（`v1.0`）。按
+> `ref == 'refs/tags/v1.0'` 去匹配会**永远匹配不上**，看起来像"标签根本没触发构建"。
+> 另外未鉴权的 API 只有 **60 次/小时**，用脚本每 20 秒轮询几次就耗尽了；而**耗尽后
+> 返回的是错误 JSON，很容易被自己的解析脚本当成"没有这次运行"**。这两个叠在一起，
+> 2026-09-28 让我误判过一轮"标签没触发"。加上 `-H "Authorization: Bearer <token>"`
+> 是 5000 次/小时，够用一天。
+
 **想撤回**：
 
 ```bash
@@ -141,6 +149,22 @@ gh release delete v1.0 -y --cleanup-tag       # 连 tag 一起删（之后可以
 **不想敲命令也行**：网页上 Releases → *Draft a new release* → 选/建标签 → 拖入 APK
 （从 Actions 的 Artifacts 解压出来）→ Publish。只是这样就每次都得手动拖，
 而 `git push origin v1.0` 是自动的。
+
+**实测（2026-09-28，v1.0 首次发布）**：
+
+```text
+推标签 → 63 秒完成（03:47:10 → 03:48:13，success）
+      （同一时刻 main 分支那次运行不会发布 —— 只有打标签才发布）
+匿名下载（刻意不带 Authorization 头）  http=200  一次成功
+      release 8 696 313 B / debug 10 913 851 B
+      下载回来的 MD5 与 Release 说明里写的逐字符一致
+         debug   ca558d28f299921f30b55e6cb5a55b26
+         release 74718a1cdb537bf202f63cd734c3433a
+包本身 → verify/apk_content_check.py 全部通过
+与上一版 CI 产物逐条目 CRC 比对：
+      debug   1032 条目，差异 0        （内容完全一致）
+      release 1033 条目，差异 1        （只差 version-control-info 里的 revision）
+```
 
 ## 二、在本机编译（可选）
 
