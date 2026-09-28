@@ -1,11 +1,16 @@
 name: 构建 APK
 
+# branches 与 tags **同时**定义时，两类 ref 都会触发（官方文档：只定义其中一类时，
+# 未定义那一类完全不触发）。所以推送 `v*` 标签会跑一次完整构建，
+# 并在末尾把 APK 发布到 Releases —— 见最后那一步。
 on:
   push:
     branches: [ main, master ]
+    tags: [ 'v*' ]
   pull_request:
   workflow_dispatch:
 
+# 顶层保持最小权限。只有 build job 需要写权限，在 job 里单独提升 —— 见下面 permissions。
 permissions:
   contents: read
 
@@ -13,6 +18,13 @@ jobs:
   build:
     name: 编译打卡水印相机
     runs-on: ubuntu-latest
+
+    # 建 Release 需要 contents: write。**别指望它默认就能写**：GITHUB_TOKEN 的默认
+    # 权限由仓库设置决定（2023 年后新建的仓库默认只读），缺权限时表现为
+    #   HTTP 403: Resource not accessible by integration
+    # 报错完全看不出是"权限"问题。显式声明。
+    permissions:
+      contents: write
 
     steps:
       # ── 底下的 action 版本为什么是这个数？───────────────────────────────
@@ -97,6 +109,11 @@ jobs:
           echo
           echo "gradle = $(command -v gradle)"
           gradle --version
+          echo
+          # 发布 Release 那一步靠 gh CLI（GitHub 托管 runner 预装）。在这里打印出来，
+          # 万一哪天 runner 镜像变了，日志里当场就能看到，而不是等最后一步才炸。
+          echo "gh = $(command -v gh)"
+          gh --version
 
       # **跳过 lintVitalRelease**（与 README 第二节一致）：工程里 lint 配的是
       # abortOnError=false，它拦不住任何问题、也不改变 APK 字节，纯让人干等
@@ -125,3 +142,80 @@ jobs:
           name: watermark-camera-release
           path: app/build/outputs/apk/release/*.apk
           if-no-files-found: error
+
+      # ── 推 v* 标签时，把 APK 挂到 Releases 上 ──────────────────────────────
+      #
+      # **怎么触发**：git tag v1.0 && git push origin v1.0  → 这一步自动跑，
+      # 产物出现在 https://github.com/<owner>/<repo>/releases
+      #
+      # 为什么用 gh CLI 而不是第三方 action（softprops/action-gh-release 之类）：
+      # ① 少一个要审计 Node 运行时的依赖 —— 刚为了清掉 "Node.js 20 is deprecated"
+      #    注解逐版读过 action.yml，不想再引进来一个（见文件开头那张表）；
+      # ② gh 是 GitHub 托管 runner 的预装工具，没有版本漂移问题。
+      #
+      # **幂等是必须的，不是加分项**：`gh release create` 没有 --clobber 参数
+      # （只有 `gh release upload` 有），所以下面两种情况都会让 create 直接失败变红：
+      #   ① 同一个 tag 重跑 workflow（比如上一次传到一半失败）；
+      #   ② 你先在网页上 Draft a new release 建好了空 release。
+      # 所以"已存在"必须分支处理：覆盖资产 + 更新说明。
+      - name: 发布到 Releases（仅推 v* 标签时）
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="$GITHUB_REF_NAME"          # 例如 v1.0
+          VER="${TAG#v}"                  # 例如 1.0
+          TITLE="打卡水印相机 ${VER}"
+          D=app/build/outputs/apk/debug/app-debug.apk
+          R=app/build/outputs/apk/release/app-release.apk
+          for f in "$D" "$R"; do
+            [ -f "$f" ] || { echo "::error::缺产物 $f"; exit 1; }
+          done
+
+          # 资产**文件名**用 ASCII 且带版本号：页面上的下载名、wget/curl 的命令行
+          # 都干净，多个版本之间也不会互相覆盖。中文放进"显示标签"（文件名后跟
+          # `#标签`），页面上照样显示中文 —— 两边都照顾到。
+          A="/tmp/watermark-camera-${VER}-debug.apk"
+          B="/tmp/watermark-camera-${VER}-release.apk"
+          cp "$D" "$A"
+          cp "$R" "$B"
+          LA="$A#打卡水印相机 ${VER} · debug（带调试信息，体积大）"
+          LB="$B#打卡水印相机 ${VER} · release（推荐装这个）"
+
+          # 提交信息里的 `|` 会破坏下面的 markdown 链接行，先剔掉
+          MSG="$(git log -1 --pretty=%s | tr -d '|')"
+          {
+            echo "两个包都用 debug 签名，**都能直接安装**（release 只是关掉了调试信息）。"
+            echo
+            echo "| 包 | 大小 | MD5 |"
+            echo "|---|---|---|"
+            printf '| `%s` | %s B | `%s` |\n' "watermark-camera-${VER}-debug.apk" \
+                   "$(stat -c %s "$A")" "$(md5sum "$A" | cut -d' ' -f1)"
+            printf '| `%s` | %s B | `%s` |\n' "watermark-camera-${VER}-release.apk" \
+                   "$(stat -c %s "$B")" "$(md5sum "$B" | cut -d' ' -f1)"
+            echo
+            printf '构建自 `%s` — [%s](%s/%s/commit/%s)\n' \
+                   "$(git rev-parse --short HEAD)" "$MSG" \
+                   "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_SHA"
+            echo
+            echo "安装：把 apk 传到手机点击安装（首次需允许「安装未知应用」）。"
+          } > /tmp/notes.md
+          echo "──── 即将发布的说明 ────"
+          cat /tmp/notes.md
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::notice::Release $TAG 已存在 → 覆盖资产并更新说明"
+            # --clobber 会先删同名旧资产再传新的（官方警告：若传输失败，旧资产就没了）。
+            # 这里传的是本次刚构建的包，丢了重跑一次即可，可以接受。
+            gh release upload "$TAG" "$LA" "$LB" --clobber
+            gh release edit "$TAG" --title "$TITLE" --notes-file /tmp/notes.md
+          else
+            echo "Release $TAG 不存在 → 新建"
+            # --verify-tag：只在远端确实有这个 tag 时才建。不加的话，gh 会拿默认分支
+            # 自动造一个 tag —— 那会把版本号悄悄指到一个错的提交上。
+            gh release create "$TAG" --verify-tag \
+              --title "$TITLE" --notes-file /tmp/notes.md "$LA" "$LB"
+          fi
+          echo
+          echo "✅ 发布完成：$(gh release view "$TAG" --json url -q .url)"

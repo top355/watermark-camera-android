@@ -36,6 +36,10 @@
 
    也可以手动触发：Actions → 构建 APK → Run workflow。
 
+> **Artifacts 有两个不方便的地方**：下载**需要登录 GitHub**（公开仓库也一样），
+> 而且 artifact 默认**90 天后过期**。要给一个"谁都能点、长期有效"的下载地址，
+> 就打标签发 Release —— 见 1.2。
+
 > 两个包都用 debug 签名，都能直接安装。要上应用商店的话，把 `app/build.gradle.kts`
 > 里 `signingConfig = signingConfigs.getByName("debug")` 换成你自己的 keystore。
 
@@ -77,6 +81,66 @@ python verify/ci_action_versions.py .
 **故意没把这个脚本挂进 CI**：它要联网拉 `raw.githubusercontent.com`，一抖动就会让 CI
 因为无关原因变红 —— 这跟 `lintVitalRelease` 是同一类问题（不动产物、只添噪音）。
 放在 `verify/` 里手动跑，或者在升级 action 之前跑一遍。
+
+### 1.2 把 APK 放进 Release（打标签自动发布）
+
+在维护者机器上敲**两条命令**，APK 就会出现在
+`https://github.com/<owner>/<repo>/releases` —— 那里**不登录也能下载**，也不会 90 天过期：
+
+```bash
+git tag -a v1.0 -m "第一个版本"      # 版本号跟 app/build.gradle.kts 里的 versionName 对齐
+git push origin v1.0
+```
+
+> **如果 `git push` 卡住、一个字节都不传** —— 大概率是凭据助手在等交互，不是网络。
+> 本机的 `credential.helper` 是**多值**的，第一个 `helper-selector` 会阻塞。
+> 绕过它：`git -c credential.helper= -c credential.helper=manager push origin v1.0`
+> （排查全过程见技能 `git-push-hang-diagnose`。2026-09-28 为此白等过 18 分钟。）
+
+**为什么推标签会触发构建**：`on.push` 里 `branches` 和 `tags` 是**同时**定义的。官方文档
+原话是"只定义 `tags` 或只定义 `branches` 时，工作流不会对未定义的那一类 ref 运行" ——
+所以只写 `branches` 时推标签**什么都不会发生**（这就是加上 `tags: ['v*']` 的原因），
+而两者都写时两类 ref 都会触发。标签**必须以 `v` 开头**（`v1.0`、`v2.1.3`）；
+写成 `1.0` 不会发布，因为条件就是 `startsWith(github.ref, 'refs/tags/v')`。
+
+推标签后跑的是**同一次运行的最后一个步骤**「发布到 Releases（仅推 v\* 标签时）」：
+它把刚编好的两个包用 `gh release create` 挂上去。四个设计点：
+
+1. **权限**：job 上显式写了 `permissions: contents: write`。别指望 token 默认能写 ——
+   仓库设置会把它降成只读，那时报的是 `HTTP 403: Resource not accessible by integration`，
+   从字面上完全看不出是"权限"问题。
+2. **幂等**：`gh release create` **没有 `--clobber` 参数**（只有 `gh release upload` 有），
+   所以"版本已存在"时 create 会直接失败。脚本先 `gh release view` 探一下：
+   已存在就走 `gh release upload --clobber` + `gh release edit`。这样两种情况都不会红：
+   ① 同一个标签重跑 workflow；② 你先在网页上建过空 release。
+3. **`--verify-tag`**：只在远端确实有这个 tag 时才建。不加的话，gh 会拿**默认分支**自动
+   造一个同名 tag —— 那等于把版本号悄悄指到一个错的提交上。
+4. **资产命名**：文件名用 ASCII 且带版本（`watermark-camera-1.0-release.apk`），
+   页面上的下载名、`curl`/`wget` 的命令行都干净，多版本之间也不互相覆盖；
+   中文放进「显示标签」（文件名后面跟 `#标签`），页面上照样是中文。
+
+**没用第三方 action**（`softprops/action-gh-release` 之类）的原因：`gh` 是 GitHub 托管
+runner 的预装工具，少一个要审计 Node 运行时的依赖 —— 刚为了清掉 Node 20 注解逐版读过
+各 action 的 `action.yml`（见 1.1），不想再引进来一个。自检步骤里会打印 `gh --version`，
+万一哪天 runner 镜像变了，日志当场就能看到。
+
+**核对发布结果**（公开仓库免鉴权可读）：
+
+```bash
+curl -s https://api.github.com/repos/<owner>/<repo>/releases \
+  | python -c "import json,sys; [print(r['tag_name'], r['draft'], [a['name'] for a in r['assets']]) for r in json.load(sys.stdin)]"
+```
+
+**想撤回**：
+
+```bash
+gh release delete v1.0 -y                    # 只删 Release，保留 tag
+gh release delete v1.0 -y --cleanup-tag       # 连 tag 一起删（之后可以重新打）
+```
+
+**不想敲命令也行**：网页上 Releases → *Draft a new release* → 选/建标签 → 拖入 APK
+（从 Actions 的 Artifacts 解压出来）→ Publish。只是这样就每次都得手动拖，
+而 `git push origin v1.0` 是自动的。
 
 ## 二、在本机编译（可选）
 
