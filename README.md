@@ -475,6 +475,64 @@ python verify/gen_glyphs.py && node verify/glyph_parity.js
 要么给左侧缩字号（伤主体信息），要么把品牌缩到看不清。垂直分开后两边各自完整，
 且零碰撞，代价只是品牌行比左侧文字低一点点。
 
+### 3.9.1 编译出来的 APK 里嵌了字体吗
+
+**嵌了一个，65 KB，只给防伪码那 14 位用。品牌区那 10 个中文不是字体，是矢量路径。**
+
+| 内容 | 怎么实现的 | 进 APK 的体积 |
+|---|---|---|
+| 品牌区「今日水印」「相机 / 真实可验」 | `BrandMarkPaths.kt` 里的**矢量轮廓字符串**（10 个字的 `M/L/Q/Z` 路径） | ≈3.0 KB，在 `classes*.dex` 里 |
+| 防伪码那 14 位 ASCII | `res/font/pt_mono_bold.ttf` | 原始 65 396 B ／ 压缩后 36 708 B |
+| 中文（地点、日期、备注、标签、品牌走系统字时） | 一律系统字体 | 0 |
+
+直接从两个成品包里读，不用信这段话：
+
+```
+python verify/apk_font_audit.py \
+    ../watermark-camera-apk/打卡水印相机-debug.apk \
+    ../watermark-camera-apk/打卡水印相机-release.apk
+```
+
+实测（debug / release 完全一致）：
+
+```
+家族名  : PT Mono        子族: Bold        版本: 13.0d2e4
+字形数  : 787            码点数: 783       中文字形: 0
+fsType  : 0x0000 Installable Embedding（可随产品分发）
+判断    : 完整字体，未裁剪
+体积    : 原始 65 396 B → 压缩后 36 708 B（占解压后总体积 0.27% / 0.33%）
+```
+
+**release 里的文件名不一样，这是正常的，不是包坏了。** 资源压缩会把
+`res/font/pt_mono_bold.ttf` 改名成 `res/vj.ttf`，但 `resources.arsc` 里的映射还在：
+
+```
+$ aapt2 dump resources 打卡水印相机-release.apk | grep -A1 pt_mono
+    resource 0x7f080000 font/pt_mono_bold
+      () (file) res/vj.ttf          ← 文件名变了，资源 ID 没变
+```
+
+**品牌中文为什么不做成字体**（这是当初的选择，不是漏掉了）：
+
+1. 只取用到的 10 个字约 3 KB，而整包 `AlimamaShuHeiTi-Bold.ttf` 要 1.4 MB；
+2. 矢量不过字体引擎 —— 不会出现「字体没加载上、悄悄退回系统字体」。PT Mono 在网页版
+   就是靠 `document.fonts.check` 才发现根本没生效的，**肉眼逐字比看不出来**。
+
+**PT Mono 的授权已核实**（`OS/2.fsType = 0x0000`，即 Installable Embedding，字体自带声明
+明确允许 bundling with commercial and non-commercial products），许可文本随包放在
+`assets/licenses/PTMono.txt`，两个包里都在。
+
+**它不能画中文** —— cmap 里 CJK 区段数为 0。所以品牌防伪码那一行是**分段**绘制的：
+「防伪」两个中文走系统字体、后面 14 位走 PT Mono（见 `WatermarkRenderer.BrandSeg`）。
+
+**有两条单测守着这件事**：`等宽字体_PTMono_已加载` 与 `等宽字体_I与M同宽`。
+必守的原因是加载失败时代码会**静默**退回系统等宽（不崩、也不出豆腐块），
+画面上几乎看不出区别 —— 只有直接问 `Typefaces.mono` 才知道到底加载没有。
+
+**不打算 subset。** 787 个字形里只用到约 40 个，裁完能从 65 KB 降到 4 KB 上下，
+但省下的是压缩后 32 KB（release 的 0.4%），代价是多一步构建、多一个可能把
+许可文本一起裁掉的坑。不划算。
+
 ### 3.10 内置占位 Logo：一份手写的矢量稿
 
 原来没选 Logo 时，卡片右侧永远是空的（回落成单位文字）。但**绝大多数人不会**
