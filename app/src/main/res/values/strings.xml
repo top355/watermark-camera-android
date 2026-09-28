@@ -109,5 +109,25 @@
     <string name="zoom_chip_desc">放大 %1$s</string>
     <string name="zoom_chip_desc_1x">原始倍率，不放大</string>
 
+    <!-- ===== 出土照片：比例与像素档位 ===== -->
+    <string name="sec_output">出土照片</string>
+    <string name="label_ratio">画面比例</string>
+    <string name="ratio_43">4:3</string>
+    <string name="ratio_169">16:9</string>
+    <!-- 「全屏」= 跟随本机屏幕的长宽比，所以不同手机上这一档的尺寸不一样 -->
+    <string name="ratio_full">全屏</string>
+    <string name="label_size">分辨率</string>
+    <string name="size_1m">1M</string>
+    <string name="size_2m">2M</string>
+    <string name="size_4m">4M</string>
+    <!-- 实际像素尺寸，由设置页按当前档位算出来填。两种朝向都写出来，
+         因为这个 App 横竖都能拍，只写一种会让人以为竖拍也是那个尺寸 -->
+    <string name="output_size_fmt">横着拍 %1$d×%2$d　·　竖着拍 %3$d×%4$d</string>
+    <!-- 全屏档的尺寸跟着屏幕走，所以在那一档要额外说明一句 -->
+    <string name="output_size_full_hint">（全屏取本机屏幕的长宽比，换台手机会不一样）</string>
+    <string name="helper_output">比例同时决定取景框的形状 —— 存下来的就是取景框里那一块，黑边里的内容不会被拍进去。\n分辨率越大越清晰、文件也越大：1M 约 0.3MB，2M 约 0.6MB，4M 约 1.3MB。\n像素数是固定的，所以换台手机、或者同一个场景拍出来，文件大小都在这个量级 —— 不会像以前那样一张 8MB。</string>
+    <string name="label_save_original">同时保存原图</string>
+    <string name="helper_save_original">另外存一张同样尺寸、同样构图但不带水印的（文件名以「原图_」开头），和水印图放在同一个相册。\n两张的文件名带同一个时间戳，方便配对。开启后占用空间翻倍。</string>
+
     <string name="btn_done">完成</string>
 </resources>

@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.ContentValues
 import android.content.DialogInterface
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.graphics.Bitmap
@@ -183,6 +184,20 @@ class MainActivity : AppCompatActivity() {
     private var shotCount = 0
     private var lastUri: Uri? = null
     private var busy = false
+
+    /**
+     * 保存耗时只给 debug 包显示在提示条上。
+     *
+     * 判据用 `FLAG_DEBUGGABLE` 而不是 `BuildConfig.DEBUG`：后者要求打开
+     * `buildFeatures.buildConfig`，为一个布尔量去改构建配置不划算。
+     *
+     * 为什么不一律显示：release 是发给同事用的，提示条上冒出
+     * 「2.4s · 12.0MP · 最慢 编码 1180ms」看着像调试残留。
+     * **但 logcat 两边都打** —— 用户装的大概率是 release，那才是真实数据。
+     */
+    private val debuggable: Boolean by lazy {
+        (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+    }
 
     /**
      * 相册里选中的那张图。只记 URI、**不缓存位图**：一张 3072 长边的 ARGB_8888
@@ -589,22 +604,33 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * 相机分辨率只有在 bind 之后才拿得到。拿不到就先按 4:3 兜底。
-     * resolutionInfo 给的是**传感器**分辨率（永远是横向的，如 1440x1080），
-     * 屏幕上是竖着显示还是横着显示由设备方向决定，见 [PreviewGeometry]。
+     * 取景框的比例**由设置决定**，不再从相机报的分辨率反推。
+     *
+     * 因为比例这一步是我们自己居中裁的（见 [PhotoRatio] 的说明），不依赖
+     * HAL 支持什么 —— 所以这里直接照配置算，同一份配置在什么机器上取景框都一样。
+     *
+     * 顺带也就不需要原来那个「等 `imageCapture.resolutionInfo` 就绪」的重试循环了：
+     * 配置一直都在，不用等相机。
+     *
+     * 「全屏」档这时候要用到**屏幕**的比例，所以顺带走一遍 [screenSpan] ——
+     * 和设置页显示尺寸用的是同一个入口，两处不会算出不同的形状。
      */
-    private fun resolveAspect(tries: Int = 0) {
-        val info = imageCapture?.resolutionInfo
-        if (info != null) {
-            val r = info.resolution
-            sensorAspect = PreviewGeometry.sensorAspect(r.width, r.height)
-            layoutOverlay()
-        } else if (tries < 12) {
-            binding.previewBox.postDelayed({ resolveAspect(tries + 1) }, 150L)
-        }
+    private fun resolveAspect() {
+        sensorAspect = PhotoRatio.of(cfg.photoRatio).portraitAspect(screenSpan())
+        layoutOverlay()
     }
 
-    /** 把水印浮层摆到「相机画面实际显示的那块矩形」上，保证所见即所得 */
+    /**
+     * 把**取景画面**和**水印浮层**一起摆到「成品照片那块矩形」上，保证所见即所得。
+     *
+     * 两块必须同一尺寸、同一位置，差一处就会出问题：
+     * - 浮层贴上去 → 水印在预览里的位置 = 在图上的位置；
+     * - 取景画面用 `fillCenter` 填满这块矩形 → 露出的是同一块居中裁剪区，
+     *   黑边里的内容不会被拍进去。
+     *
+     * 改比例时只要重跑这一个函数就够，**不需要重建相机会话** —— 采集始终是 4:3。
+     * 这一点很值钱：重建 session 会闪一下黑屏，而且在部分 ROM 上会打断对焦。
+     */
     private fun layoutOverlay() {
         val cw = binding.previewBox.width
         val ch = binding.previewBox.height
@@ -616,12 +642,23 @@ class MainActivity : AppCompatActivity() {
         val h = size[1]
         if (w <= 0 || h <= 0) return
 
+        /* 两块分开判"要不要更新"：任何一块在别处被改过时都得能纠正回来，
+         * 用一个共同条件提前 return 会让另一块永远停在错误的尺寸上 */
         val lp = binding.overlay.layoutParams as FrameLayout.LayoutParams
-        if (lp.width == w && lp.height == h) return
-        lp.width = w
-        lp.height = h
-        lp.gravity = Gravity.CENTER
-        binding.overlay.layoutParams = lp
+        if (lp.width != w || lp.height != h) {
+            lp.width = w
+            lp.height = h
+            lp.gravity = Gravity.CENTER
+            binding.overlay.layoutParams = lp
+        }
+
+        val plp = binding.previewView.layoutParams as FrameLayout.LayoutParams
+        if (plp.width != w || plp.height != h) {
+            plp.width = w
+            plp.height = h
+            plp.gravity = Gravity.CENTER
+            binding.previewView.layoutParams = plp
+        }
     }
 
     override fun onResume() {
@@ -1079,6 +1116,7 @@ class MainActivity : AppCompatActivity() {
         val locS = loc
 
         lifecycleScope.launch {
+            val ratio = PhotoRatio.of(cfgSnap.photoRatio)
             val src = withContext(Dispatchers.IO) {
                 ImageWatermarker.decode(this@MainActivity, uri, PREVIEW_SIDE)
             }
@@ -1088,9 +1126,28 @@ class MainActivity : AppCompatActivity() {
                 return@launch
             }
             val prev = withContext(Dispatchers.Default) {
-                ImageWatermarker.render(src, cfgSnap, logoS, cfgSnap.now(), locS)
+                /*
+                 * 先按设置的比例裁一刀 —— 预览必须和成品是同一个构图，
+                 * 否则用户在这里确认过的画面，存下来却少了两条边。
+                 *
+                 * 只裁不缩：预览要的是版式对，尺寸小一点反而更快更省内存。
+                 * 方向跟着原图走，所以竖图用 1/span。
+                 */
+                val sp = ratio.span(screenSpan())
+                val want = if (src.width >= src.height) sp else 1.0 / sp
+                val framed = cropRatio(src, want)
+                src.recycle()
+                WatermarkRenderer.draw(
+                    Canvas(framed),
+                    framed.width.toFloat(),
+                    framed.height.toFloat(),
+                    cfgSnap,
+                    logoS,
+                    cfgSnap.now(),
+                    locS
+                )
+                framed
             }
-            src.recycle()
             busy = false
             pendingUri = uri
             showPhotoPreview(prev)
@@ -1146,21 +1203,75 @@ class MainActivity : AppCompatActivity() {
         toast(getString(R.string.pick_photo_working))
 
         lifecycleScope.launch {
+            val prof = SaveProfiler("相册加字")
+            val size = SaveSize.of(cfgSnap.saveSize)
+            val ratio = PhotoRatio.of(cfgSnap.photoRatio)
+            /* 在进 IO 线程之前就把屏幕比例取好：读 displayMetrics 是主线程的事，
+             * 而且这样它和取景框用的是同一次读到的值 */
+            val span = ratio.span(screenSpan())
             val saved = withContext(Dispatchers.IO) {
-                val src = ImageWatermarker.decode(this@MainActivity, uri) ?: return@withContext null
-                val out = ImageWatermarker.render(src, cfgSnap, logoS, cfgSnap.now(), locS)
+                /*
+                 * 解码上限给到目标长边的**两倍**，而不是刚好等于目标。
+                 *
+                 * [ImageWatermarker.decode] 的采样倍数只能取 2 的幂，取的是"缩完不超过上限"
+                 * 的最小倍数，所以上限刚好等于目标时它会**缩过头**：源长边 4608、目标 1600
+                 * 会被缩到 1152，再想回到 1600 就只能放大 —— 那是真的糊。
+                 * 给两倍能保证缩完仍在目标之上，最后那一段精确缩放由 [cropTo] 补。
+                 */
+                val cap = size.longSide(ratio, span) * 2
+                val src = ImageWatermarker.decode(this@MainActivity, uri, cap)
+                    ?: return@withContext null
+                prof.stage("解码")
+
+                /* 方向跟着原图走：横图出横的、竖图出竖的 */
+                val o = size.output(ratio, span, src.width >= src.height)
+                val out = cropTo(src, o[0], o[1])
                 src.recycle()
-                val name = "水印_" +
-                    SimpleDateFormat("yyyyMMdd_HHmmss", Locale.CHINA).format(Date()) + ".jpg"
-                val u = saveBitmap(out, name)
+                prof.stage("裁剪缩放")
+
+                /* 同拍照那条路：两张图共用一个时间戳才配得上对 */
+                val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.CHINA).format(Date())
+
+                /* 无水印那份先存 —— 水印是直接画在 out 上的，画完就没有干净版了 */
+                var savedOriginal = false
+                /* 无水印那份先存 —— 水印是直接画在 out 上的，画完就没有干净版了 */
+                if (cfgSnap.saveOriginal) {
+                    val profOrig = SaveProfiler("原图")
+                    savedOriginal = saveBitmap(out, "原图_$stamp.jpg", profOrig) != null
+                    if (savedOriginal) profOrig.log(o[0], o[1])
+                }
+
+                /* 水印直接画在这张已经定好尺寸的图上，不再另外拷一份 */
+                WatermarkRenderer.draw(
+                    Canvas(out),
+                    out.width.toFloat(),
+                    out.height.toFloat(),
+                    cfgSnap,
+                    logoS,
+                    cfgSnap.now(),
+                    locS
+                )
+                prof.stage("水印")
+
+                val u = saveBitmap(out, "水印_$stamp.jpg", prof)
                 val tw = 220
                 val thumb = if (u != null) {
                     Bitmap.createScaledBitmap(out, tw, max(1, tw * out.height / out.width), true)
                 } else {
                     null
                 }
+                prof.stage("缩略图")
+                /* 先取宽高再回收 —— recycle 之后 width/height 虽然还有值，
+                 * 但依赖这个行为很脆，不如显式取值 */
+                val ow = out.width
+                val oh = out.height
                 out.recycle()
-                if (u != null && thumb != null) Shot(u, thumb) else null
+                if (u != null && thumb != null) {
+                    prof.log(ow, oh)
+                    Shot(u, thumb, prof.summary(ow, oh), savedOriginal)
+                } else {
+                    null
+                }
             }
             busy = false
             pendingUri = null
@@ -1172,7 +1283,11 @@ class MainActivity : AppCompatActivity() {
                 shotCount++
                 Prefs.setShotCount(this@MainActivity, shotCount)
                 binding.cntPill.text = "已拍 $shotCount 张"
-                Snackbar.make(binding.root, R.string.pick_photo_saved, Snackbar.LENGTH_LONG)
+                Snackbar.make(
+                    binding.root,
+                    savedMsg(saved, getString(R.string.pick_photo_saved)),
+                    Snackbar.LENGTH_LONG
+                )
                     .setAction("分享") { share(saved.uri) }
                     .show()
             }
@@ -1181,7 +1296,19 @@ class MainActivity : AppCompatActivity() {
 
     /* ------------------------- 拍照 / 合成 ------------------------- */
 
-    private class Shot(val uri: Uri, val thumb: Bitmap)
+    /**
+     * [timing] 是这一张的分段耗时摘要（见 [SaveProfiler]）。为 null 表示没计时。
+     * 只有 debug 包会把它拼进提示条。
+     *
+     * [withOriginal] 记录**无水印那张是否真的存上了**（不是"设置里开着"）——
+     * 提示条要靠它决定说不说"另存了原图"。存失败时还提示就成了谎报。
+     */
+    private class Shot(
+        val uri: Uri,
+        val thumb: Bitmap,
+        val timing: String? = null,
+        val withOriginal: Boolean = false
+    )
 
     private fun takePhoto() {
         val ic = imageCapture ?: return
@@ -1221,7 +1348,7 @@ class MainActivity : AppCompatActivity() {
                             shotCount++
                             Prefs.setShotCount(this@MainActivity, shotCount)
                             binding.cntPill.text = "已拍 $shotCount 张"
-                            Snackbar.make(binding.root, "已保存到相册", Snackbar.LENGTH_LONG)
+                            Snackbar.make(binding.root, savedMsg(shot, "已保存到相册"), Snackbar.LENGTH_LONG)
                                 .setAction("分享") { share(shot.uri) }
                                 .show()
                         }
@@ -1245,16 +1372,38 @@ class MainActivity : AppCompatActivity() {
         locForShot: LocInfo?
     ): Shot? {
         if (bytes.isEmpty()) return null
-        val src = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
+        val prof = SaveProfiler("拍照")
+        val size = SaveSize.of(cfgForShot.saveSize)
+        val ratio = PhotoRatio.of(cfgForShot.photoRatio)
+        /* 全屏档的比例来自屏幕，4:3 / 16:9 传什么都一样（见 PhotoRatio.span） */
+        val span = ratio.span(screenSpan())
+        val swap = rotation == 90 || rotation == 270
 
+        /*
+         * 先只读文件头拿原图尺寸（不解码像素，几毫秒），据此算出采样倍数。
+         * 不读这一步就没法决定 inSampleSize —— 而它正是能把内存和后面每一步
+         * 耗时一起砍掉大半的那一刀：16MP 的图 ARGB_8888 是 74MB，缩一半只剩 18MB。
+         */
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        val plan = planDecode(bounds.outWidth, bounds.outHeight, swap, size, ratio, span)
+            ?: return null
+
+        val opts = BitmapFactory.Options().apply { inSampleSize = plan.sample }
+        val src = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts) ?: return null
+        prof.stage("解码")
+
+        /*
+         * 摆正。这一步的输出尺寸是**解码后**的原图尺寸（90/270 度要把宽高对调），
+         * 裁剪与缩放留到下一步一起做 —— 那样中间不会多出一张"裁完还没缩"的图。
+         */
         val srcW = src.width
         val srcH = src.height
-        val swap = rotation == 90 || rotation == 270
-        val outW = if (swap) srcH else srcW
-        val outH = if (swap) srcW else srcH
+        val upW = if (swap) srcH else srcW
+        val upH = if (swap) srcW else srcH
 
-        val out = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(out)
+        val upright = Bitmap.createBitmap(upW, upH, Bitmap.Config.ARGB_8888)
+        val upCanvas = Canvas(upright)
 
         val m = Matrix()
         when (rotation) {
@@ -1273,38 +1422,87 @@ class MainActivity : AppCompatActivity() {
         }
 
         val mirror = lensFacing == CameraSelector.LENS_FACING_FRONT && cfgForShot.mirrorSave
-        val save = canvas.save()
-        if (mirror) canvas.scale(-1f, 1f, outW / 2f, outH / 2f)
-        canvas.drawBitmap(src, m, Paint(Paint.FILTER_BITMAP_FLAG))
-        canvas.restoreToCount(save)
+        val save = upCanvas.save()
+        if (mirror) upCanvas.scale(-1f, 1f, upW / 2f, upH / 2f)
+        upCanvas.drawBitmap(src, m, Paint(Paint.FILTER_BITMAP_FLAG))
+        upCanvas.restoreToCount(save)
         src.recycle()
+        prof.stage("摆正")
+
+        /*
+         * 裁到目标比例 + 缩到目标尺寸。**必须在摆正之后**：
+         * 裁剪框要按人眼看到的方向居中，转 90 度之前裁会把竖图裁成横的。
+         */
+        val out = cropTo(upright, plan.outW, plan.outH)
+        upright.recycle()
+        prof.stage("裁剪缩放")
+
+        /*
+         * 两张图共用一个时间戳，它们才配得上对 —— 用户看到的是
+         * 「原图_20260928_130412」和「打卡_20260928_130412」这一对。
+         * 各自取一次 Date() 会差几百毫秒，跨秒时就成了两个不同的时刻。
+         */
+        val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.CHINA).format(Date())
+
+        /*
+         * 无水印那份**必须先存**：下面 WatermarkRenderer.draw 是把水印直接画在
+         * `out` 这张图上（不另拷一份，省一次全尺寸拷贝），画完就再也拿不到干净版了。
+         *
+         * 存不上也不打断流程：主角是水印图，为了附赠的一份让整张照片失败不值。
+         */
+        var savedOriginal = false
+        if (cfgForShot.saveOriginal) {
+            val profOrig = SaveProfiler("原图")
+            savedOriginal = saveBitmap(out, "原图_$stamp.jpg", profOrig) != null
+            if (savedOriginal) profOrig.log(plan.outW, plan.outH)
+        }
 
         WatermarkRenderer.draw(
-            canvas,
-            outW.toFloat(),
-            outH.toFloat(),
+            Canvas(out),
+            plan.outW.toFloat(),
+            plan.outH.toFloat(),
             cfgForShot,
             logoForShot,
             /* 走 config.now()：锁了水印时间时，这里必须和预览用的是同一个值 */
             cfgForShot.now(),
             locForShot
         )
+        prof.stage("水印")
 
-        val name = "打卡_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.CHINA).format(Date()) + ".jpg"
-        val uri = saveBitmap(out, name)
+        val uri = saveBitmap(out, "打卡_$stamp.jpg", prof)
         if (uri == null) {
             out.recycle()
             return null
         }
         val tw = 220
-        val th = max(1, tw * outH / outW)
+        val th = max(1, tw * plan.outH / plan.outW)
         val thumb = Bitmap.createScaledBitmap(out, tw, th, true)
         out.recycle()
-        return Shot(uri, thumb)
+        prof.stage("缩略图")
+        /*
+         * 原图尺寸、采样倍数、输入字节数一起记：这三个是判断"这张为什么慢/为什么大"
+         * 的全部依据 —— 只记成品尺寸的话，看到 1600×1200 根本不知道来源是 8MP 还是 64MP。
+         */
+        prof.log(
+            plan.outW, plan.outH,
+            extra = "原图=${bounds.outWidth}x${bounds.outHeight} 采样=1/${plan.sample} jpg入=${bytes.size / 1024}KB"
+        )
+        return Shot(uri, thumb, prof.summary(plan.outW, plan.outH), savedOriginal)
     }
 
-    /** API 29+ 走 scoped storage 的 RELATIVE_PATH；26~28 写公共目录再通知媒体扫描 */
-    private fun saveBitmap(bmp: Bitmap, name: String): Uri? {
+    /**
+     * API 29+ 走 scoped storage 的 RELATIVE_PATH；26~28 写公共目录再通知媒体扫描。
+     *
+     * [prof] 把这一段拆成三小段：「建条目」（MediaStore insert）、「编码」（JPEG 压缩
+     * + 写盘 —— 这两件事在 `Bitmap.compress` 里是同一趟，分不开）、「提交」（IS_PENDING=0）。
+     * 拆的理由是它们慢的原因完全不同：编码慢是 CPU，写盘/提交慢是存储
+     * （部分机型走 FUSE，几 MB 的写能到几百毫秒）。混成一个数就不知道该优化谁。
+     *
+     * 两条分支用**同一组阶段名**，日志才能直接对比；26~28 那条没有"建条目"
+     * （不走 MediaStore），但末尾同样叫「提交」而不是「扫描」——
+     * `scanFile` 是异步的，紧接着打表量到的是 0ms，拿它当"扫描耗时"是假数据。
+     */
+    private fun saveBitmap(bmp: Bitmap, name: String, prof: SaveProfiler? = null): Uri? {
         return try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 val values = ContentValues().apply {
@@ -1319,11 +1517,14 @@ class MainActivity : AppCompatActivity() {
                 val resolver = contentResolver
                 val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
                     ?: return null
+                prof?.stage("建条目")
                 val os = resolver.openOutputStream(uri) ?: return null
                 os.use { bmp.compress(Bitmap.CompressFormat.JPEG, 93, it) }
+                prof?.stage("编码")
                 values.clear()
                 values.put(MediaStore.Images.Media.IS_PENDING, 0)
                 resolver.update(uri, values, null, null)
+                prof?.stage("提交")
                 uri
             } else {
                 @Suppress("DEPRECATION")
@@ -1334,12 +1535,29 @@ class MainActivity : AppCompatActivity() {
                 if (!dir.exists() && !dir.mkdirs()) return null
                 val f = File(dir, name)
                 FileOutputStream(f).use { bmp.compress(Bitmap.CompressFormat.JPEG, 93, it) }
+                prof?.stage("编码")
                 MediaScannerConnection.scanFile(this, arrayOf(f.absolutePath), arrayOf("image/jpeg"), null)
+                prof?.stage("提交")
                 Uri.fromFile(f)
             }
         } catch (e: Exception) {
             null
         }
+    }
+
+    /**
+     * 提示条文案。debug 包会附上这一张的分段耗时摘要 ——
+     * 「这几秒花在哪」不接 adb 就能直接看到。
+     */
+    /**
+     * 提示条文案。[base] 是"存到哪了"，其余按实际情况追加。
+     *
+     * 开了「同时保存原图」时必须说明 —— 相册里凭空多出一张，不说的话
+     * 用户第一反应是"存重了"或者"这个 App 有 bug"。
+     */
+    private fun savedMsg(shot: Shot, base: String): String {
+        val b = if (shot.withOriginal) "$base（另存了原图）" else base
+        return if (debuggable && shot.timing != null) "$b · ${shot.timing}" else b
     }
 
     private fun share(uri: Uri) {

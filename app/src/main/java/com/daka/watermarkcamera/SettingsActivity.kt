@@ -61,6 +61,7 @@ class SettingsActivity : AppCompatActivity() {
         bindAddress()
         bindLogo()
         bindManualTime()
+        bindOutput()
         binding.doneButton.setOnClickListener { finish() }
 
         refreshLogoPreview()
@@ -122,6 +123,7 @@ class SettingsActivity : AppCompatActivity() {
         binding.swShowBrand.isChecked = cfg.showBrand
         binding.swShowCode.isChecked = cfg.showCode
         binding.swMirrorSave.isChecked = cfg.mirrorSave
+        binding.swSaveOriginal.isChecked = cfg.saveOriginal
         if (cfg.posTop) binding.rbTop.isChecked = true else binding.rbBottom.isChecked = true
     }
 
@@ -173,6 +175,69 @@ class SettingsActivity : AppCompatActivity() {
             )
         }
         binding.swUseBuiltinLogo.setOnCheckedChangeListener { _, _ -> refreshLogoPreview() }
+    }
+
+    /* ------------------------- 出土照片：比例与分辨率 ------------------------- */
+
+    /**
+     * 选中当前档位，并在任意一格被点中时**立刻**刷新下面那行实际像素尺寸。
+     *
+     * 立刻刷新而不是等返回主界面：这两组单选的全部意义就是"选之前就知道会出多大的图"，
+     * 点完还要退出去拍照才发现不对，那这一页就白设了。
+     */
+    private fun bindOutput() {
+        /* 走到 of() 而不是 entries[code]：存量配置里可能是认不出来的野值 */
+        when (PhotoRatio.of(cfg.photoRatio)) {
+            PhotoRatio.R4_3 -> binding.rbRatio43.isChecked = true
+            PhotoRatio.R16_9 -> binding.rbRatio169.isChecked = true
+            PhotoRatio.R_FULL -> binding.rbRatioFull.isChecked = true
+        }
+        when (SaveSize.of(cfg.saveSize)) {
+            SaveSize.M1 -> binding.rbSize1m.isChecked = true
+            SaveSize.M2 -> binding.rbSize2m.isChecked = true
+            SaveSize.M4 -> binding.rbSize4m.isChecked = true
+        }
+        binding.rgRatio.setOnCheckedChangeListener { _, _ -> paintOutputSize() }
+        binding.rgSize.setOnCheckedChangeListener { _, _ -> paintOutputSize() }
+        paintOutputSize()
+    }
+
+    /**
+     * 显示当前档位的**实际像素尺寸**。
+     *
+     * 两种朝向都列出来：这个 App 横竖都能拍，而且竖拍时宽高是对调的 ——
+     * 只写一种，用户竖着拍完会以为设置没生效。
+     */
+    private fun paintOutputSize() {
+        val ratio = pickedRatio()
+        val size = pickedSize()
+        /*
+         * 屏幕比例走 [screenSpan]（和相机页取景框同一个入口）——
+         * 全屏档的尺寸取决于屏幕，这里显示的必须和真拍出来的那次完全一致。
+         */
+        val span = ratio.span(screenSpan())
+        val land = size.output(ratio, span, landscape = true)
+        val port = size.output(ratio, span, landscape = false)
+        val base = getString(R.string.output_size_fmt, land[0], land[1], port[0], port[1])
+        /*
+         * 全屏档额外说明一句：它的尺寸取决于本机屏幕，换台手机就不同。
+         * 不说明的话用户会以为"设置没生效"或"这数字是写死的"。
+         */
+        binding.tvOutputSize.text =
+            if (ratio.isFullScreen) base + "\n" + getString(R.string.output_size_full_hint) else base
+    }
+
+    /** 都是"没选中任何一格时兜到默认档"，不返回 null —— 免得调用点到处判空 */
+    private fun pickedRatio(): PhotoRatio = when {
+        binding.rbRatio169.isChecked -> PhotoRatio.R16_9
+        binding.rbRatioFull.isChecked -> PhotoRatio.R_FULL
+        else -> PhotoRatio.R4_3
+    }
+
+    private fun pickedSize(): SaveSize = when {
+        binding.rbSize1m.isChecked -> SaveSize.M1
+        binding.rbSize4m.isChecked -> SaveSize.M4
+        else -> SaveSize.M2
     }
 
     /** 手动指定的水印时刻。开关关着时它只是"下次要用什么值" */
@@ -274,7 +339,10 @@ class SettingsActivity : AppCompatActivity() {
         cfg.showBrand = binding.swShowBrand.isChecked
         cfg.showCode = binding.swShowCode.isChecked
         cfg.mirrorSave = binding.swMirrorSave.isChecked
+        cfg.saveOriginal = binding.swSaveOriginal.isChecked
         cfg.posTop = binding.rbTop.isChecked
+        cfg.photoRatio = pickedRatio().code
+        cfg.saveSize = pickedSize().code
         /*
          * 开关处于"关"时也把那个时刻存下去：用户下次再打开，
          * 看到的还是上次挑好的时间，不用重新选一遍。

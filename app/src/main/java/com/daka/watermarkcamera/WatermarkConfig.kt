@@ -41,6 +41,32 @@ data class WatermarkConfig(
     var showAlt: Boolean = false,
     var posTop: Boolean = false,
     var mirrorSave: Boolean = false,
+    /**
+     * 出土照片的比例与像素档位，取 [PhotoRatio] / [SaveSize] 的**稳定编码**（`code`）。
+     *
+     * 存 code 而不是枚举序号、也不是枚举名：序号会在往中间插一档时静默错位，
+     * 枚举名会在改个字时把用户选好的档丢掉。
+     * 读的时候一律走 `PhotoRatio.of()` / `SaveSize.of()` —— 那两个函数对
+     * 认不出来的值有兜底，所以老版本存进来的、或将来删掉档位留下的野值都不会崩。
+     *
+     * 默认 4:3 + 1M：4:3 是水印相机的惯例，也是取景框留黑边最少的一档；
+     * 1M（1152×864，约 0.3MB）认脸、看水印、看环境都够，传群和上传考勤系统最快 ——
+     * 原先 "相机给多大存多大" 是 8MB 一张，太浪费。
+     */
+    var photoRatio: Int = 0,
+    var saveSize: Int = 0,
+    /**
+     * 除了带水印的那张，**再存一张同样尺寸、不带水印的**（文件名以「原图_」开头）。
+     *
+     * 有些场合要的是"这张照片本身"而不是打卡凭证 —— 比如把照片交给别的系统存档、
+     * 或者自己留底。带水印的那张反而不能用。
+     *
+     * 两张**同尺寸同构图**，只是其中一张没画水印：这样存储翻倍但可控
+     * （1M 档也就多 0.3MB），不会像"另外存一份原始全尺寸"那样又冒出 8MB 大图。
+     *
+     * 默认关 —— 多存一份会翻倍占空间，只有确实需要的人该打开它。
+     */
+    var saveOriginal: Boolean = false,
     /** 定位成功后自动反查地名并填入（用户自己填过的地点不会被覆盖，见 Prefs.addrManual） */
     var autoAddr: Boolean = true,
     /**
@@ -111,6 +137,9 @@ object Prefs {
             showAlt = p.getBoolean("showAlt", d.showAlt),
             posTop = p.getBoolean("posTop", d.posTop),
             mirrorSave = p.getBoolean("mirrorSave", d.mirrorSave),
+            photoRatio = p.getInt("photoRatio", d.photoRatio),
+            saveSize = p.getInt("saveSize", d.saveSize),
+            saveOriginal = p.getBoolean("saveOriginal", d.saveOriginal),
             autoAddr = p.getBoolean("autoAddr", d.autoAddr),
             showBrand = p.getBoolean("showBrand", d.showBrand),
             /*
@@ -148,6 +177,9 @@ object Prefs {
             putBoolean("showAlt", c.showAlt)
             putBoolean("posTop", c.posTop)
             putBoolean("mirrorSave", c.mirrorSave)
+            putInt("photoRatio", c.photoRatio)
+            putInt("saveSize", c.saveSize)
+            putBoolean("saveOriginal", c.saveOriginal)
             putBoolean("autoAddr", c.autoAddr)
             putBoolean("showBrand", c.showBrand)
             putString("brandName", c.brandName)

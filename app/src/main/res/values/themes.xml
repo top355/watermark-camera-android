@@ -91,4 +91,25 @@
         <item name="android:lineSpacingMultiplier">1.25</item>
         <item name="android:textColor">?android:attr/textColorSecondary</item>
     </style>
+
+    <!-- 单选组上方的小标题。
+         **不能复用 SwitchRowLabel** —— 那个是给横向开关行里用的（宽 0dp + weight 1），
+         单独放进竖排容器时宽度会算成 0，整行字直接看不见，而且不报任何错。 -->
+    <style name="GroupLabel">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">12dp</item>
+        <item name="android:textSize">15sp</item>
+        <item name="android:textColor">?android:attr/textColorPrimary</item>
+    </style>
+
+    <!-- 当前档位的实际像素尺寸。用强调色 —— 这行是给人"确认自己选对了"用的，
+         灰下去就失去意义了 -->
+    <style name="ValueText">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">4dp</item>
+        <item name="android:textSize">14sp</item>
+        <item name="android:textColor">@color/accent</item>
+    </style>
 </resources>

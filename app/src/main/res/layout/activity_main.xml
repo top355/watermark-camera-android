@@ -11,13 +11,25 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent">
 
+        <!--
+            fillCenter，不是 fitCenter。
+            （注意 PreviewView 的 scaleType **没有 centerCrop 这个取值** —— 它的枚举是
+            fill*/fit* 两组，`fill` 就是"填满整个视图、把超出的部分裁掉"，`fit` 才是留黑边的 letterbox。
+            写 centerCrop 会直接资源链接失败。）
+
+            为什么必须换：比例由设置决定（4:3 / 16:9 / 1:1），而**裁剪是我们自己居中做的** ——
+            不能指望相机支持 1:1（很多机型只出 4:3 和 16:9，协商失败会静默退回）。
+            所以这块取景框按目标比例摆，fillCenter 让它露出的正好是同一块居中区域，
+            黑边里的内容不会被拍进去 —— 「取景框里看到的」就等于「存下来的」。
+            默认 4:3 时目标比例与采集比例相同，fillCenter 与原来的 fitCenter 完全等效。
+        -->
         <androidx.camera.view.PreviewView
             android:id="@+id/previewView"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            app:scaleType="fitCenter" />
+            app:scaleType="fillCenter" />
 
-        <!-- 尺寸由代码按相机画面比例设定，保证与出图一致 -->
+        <!-- 尺寸与位置由代码设成和上面那块取景画面完全一致，保证与出图一致 -->
         <com.daka.watermarkcamera.WatermarkOverlayView
             android:id="@+id/overlay"
             android:layout_width="1dp"

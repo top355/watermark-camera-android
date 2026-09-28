@@ -1,5 +1,6 @@
 package com.daka.watermarkcamera
 
+import android.content.Context
 import kotlin.math.max
 import kotlin.math.min
 
@@ -44,4 +45,20 @@ object PreviewGeometry {
             intArrayOf(cw, (cw / a).toInt())
         }
     }
+}
+
+/**
+ * 设备屏幕的长短边比（≥ 1），给「全屏」画幅用。
+ *
+ * 相机页（摆取景框）和设置页（显示"这一档会出多大"）**必须走同一个入口**：
+ * 两处各读一次、哪怕读法只差一点，设置页写的形状和取景框的形状就会对不上，
+ * 而用户是照着设置页那行字去判断该选哪一档的。
+ *
+ * 用 `resources.displayMetrics` 而不是 `WindowManager` 的当前窗口尺寸：
+ * 前者在所有 API 级别上都有，且拿到的就是本 Activity 的可见区域 ——
+ * 这正是取景框实际要铺满的那块地方（多窗口下取窗口、全屏下取屏幕，都对）。
+ */
+fun Context.screenSpan(): Double {
+    val dm = resources.displayMetrics
+    return screenSpan(dm.widthPixels, dm.heightPixels)
 }

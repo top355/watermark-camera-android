@@ -367,6 +367,87 @@
                     android:text="@string/pos_top" />
             </RadioGroup>
 
+            <!-- ==================== 出土照片 ==================== -->
+            <TextView style="@style/SectionTitle" android:text="@string/sec_output" />
+
+            <TextView style="@style/GroupLabel" android:text="@string/label_ratio" />
+
+            <RadioGroup
+                android:id="@+id/rgRatio"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <RadioButton
+                    android:id="@+id/rbRatio43"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="true"
+                    android:text="@string/ratio_43" />
+
+                <RadioButton
+                    android:id="@+id/rbRatio169"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="20dp"
+                    android:text="@string/ratio_169" />
+
+                <RadioButton
+                    android:id="@+id/rbRatioFull"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="20dp"
+                    android:text="@string/ratio_full" />
+            </RadioGroup>
+
+            <TextView style="@style/GroupLabel" android:text="@string/label_size" />
+
+            <RadioGroup
+                android:id="@+id/rgSize"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <RadioButton
+                    android:id="@+id/rbSize1m"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="true"
+                    android:text="@string/size_1m" />
+
+                <RadioButton
+                    android:id="@+id/rbSize2m"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="20dp"
+                    android:text="@string/size_2m" />
+
+                <RadioButton
+                    android:id="@+id/rbSize4m"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="20dp"
+                    android:text="@string/size_4m" />
+            </RadioGroup>
+
+            <!-- 运行时按当前档位填真实像素尺寸（见 SettingsActivity.paintOutputSize） -->
+            <TextView
+                android:id="@+id/tvOutputSize"
+                style="@style/ValueText"
+                tools:text="横着拍 1920×1080　·　竖着拍 1080×1920" />
+
+            <TextView style="@style/HintText" android:text="@string/helper_output" />
+
+            <LinearLayout style="@style/SwitchRow">
+                <TextView style="@style/SwitchRowLabel" android:text="@string/label_save_original" />
+                <com.google.android.material.materialswitch.MaterialSwitch
+                    android:id="@+id/swSaveOriginal"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" />
+            </LinearLayout>
+
+            <TextView style="@style/HintText" android:text="@string/helper_save_original" />
+
             <!-- ==================== 高级 ==================== -->
             <TextView style="@style/SectionTitle" android:text="@string/sec_advanced" />
 
